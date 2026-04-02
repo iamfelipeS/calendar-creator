@@ -62,7 +62,7 @@ const toggleOptions: Array<{ key: keyof PalmeirasCalendarSettings; title: string
 ];
 
 const rangeOptions: Array<{
-  key: 'watermarkOpacity' | 'watermarkScale';
+  key: 'watermarkOpacity' | 'watermarkScale' | 'watermarkOffsetX' | 'watermarkOffsetY';
   title: string;
   description: string;
   min: number;
@@ -88,6 +88,24 @@ const rangeOptions: Array<{
     step: 0.05,
     format: (value) => `${value.toFixed(2)}x`,
   },
+  {
+    key: 'watermarkOffsetX',
+    title: 'Posição horizontal',
+    description: 'Move a marca d agua para esquerda ou direita.',
+    min: -220,
+    max: 220,
+    step: 5,
+    format: (value) => `${value > 0 ? '+' : ''}${Math.round(value)}px`,
+  },
+  {
+    key: 'watermarkOffsetY',
+    title: 'Posição vertical',
+    description: 'Move a marca d agua para cima ou para baixo.',
+    min: -260,
+    max: 260,
+    step: 5,
+    format: (value) => `${value > 0 ? '+' : ''}${Math.round(value)}px`,
+  },
 ];
 
 const densityOptions: Array<{
@@ -99,9 +117,9 @@ const densityOptions: Array<{
 ];
 
 const modalPreviewWidths: Record<PalmeirasCalendarSettings['canvasFormat'], number> = {
-  feedPortrait: 300,
-  square: 280,
-  story: 190,
+  feedPortrait: 1325,
+  square: 1094,
+  story: 749,
 };
 
 export default function CalendarSettingsModal({
@@ -116,6 +134,12 @@ export default function CalendarSettingsModal({
   onApplyPreset,
   onLogoUpload,
 }: CalendarSettingsModalProps) {
+  const previewAspectRatio = settings.canvasFormat === 'square' ? 1080 / 1080 : settings.canvasFormat === 'story' ? 1080 / 1920 : 1080 / 1350;
+  const previewBaseWidth = modalPreviewWidths[settings.canvasFormat];
+  const previewBaseHeight = previewBaseWidth / previewAspectRatio;
+  const previewScale = settings.canvasFormat === 'story' ? 0.2 : 0.24;
+  const previewWrapperHeight = previewBaseHeight * previewScale;
+
   if (!isOpen) {
     return null;
   }
@@ -396,10 +420,21 @@ export default function CalendarSettingsModal({
 
               <div className="mt-4 flex justify-center overflow-hidden rounded-[22px] border border-white/10 bg-slate-950/20 p-3 sm:p-4">
                 <div
-                  className="w-full transition-all duration-200"
-                  style={{ maxWidth: `${Math.round(modalPreviewWidths[settings.canvasFormat] * settings.calendarScale)}px` }}
+                  className="relative w-full overflow-hidden transition-all duration-200"
+                  style={{
+                    height: `${previewWrapperHeight}px`,
+                    maxWidth: `${previewBaseWidth * previewScale}px`,
+                  }}
                 >
-                  <PalmeirasCalendar month={month} year={year} matches={matches} settings={settings} />
+                  <div
+                    style={{
+                      width: `${previewBaseWidth}px`,
+                      transform: `scale(${previewScale})`,
+                      transformOrigin: 'top center',
+                    }}
+                  >
+                    <PalmeirasCalendar month={month} year={year} matches={matches} settings={settings} />
+                  </div>
                 </div>
               </div>
             </section>

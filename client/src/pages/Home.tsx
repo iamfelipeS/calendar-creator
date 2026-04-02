@@ -133,7 +133,6 @@ const parseMatchesInput = (input: string, persistedTeamLogos?: Record<string, st
 
 export default function Home() {
   const calendarRef = useRef<HTMLDivElement | null>(null);
-  const exportCalendarRef = useRef<HTMLDivElement | null>(null);
   const [month, setMonth] = useState('ABRIL');
   const [year, setYear] = useState('2026');
   const [matchesText, setMatchesText] = useState(initialMatchesText);
@@ -146,7 +145,6 @@ export default function Home() {
   const [calendarSettings, setCalendarSettings] = useState<PalmeirasCalendarSettings>(defaultPalmeirasCalendarSettings);
   const [isExporting, setIsExporting] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportFormat, setExportFormat] = useState<PalmeirasCalendarSettings['canvasFormat']>(defaultPalmeirasCalendarSettings.canvasFormat);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
   const [isSavingBranding, setIsSavingBranding] = useState(false);
   const [savingTeamSlug, setSavingTeamSlug] = useState<string | null>(null);
@@ -334,14 +332,65 @@ export default function Home() {
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   };
 
+  const applyRoundedTransparency = async (blob: Blob, element: HTMLDivElement, pixelRatio: number) => {
+    const imageUrl = URL.createObjectURL(blob);
+
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const nextImage = new Image();
+        nextImage.onload = () => resolve(nextImage);
+        nextImage.onerror = () => reject(new Error('Nao foi possivel processar a imagem exportada.'));
+        nextImage.src = imageUrl;
+      });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+
+      const context = canvas.getContext('2d');
+      if (!context) {
+        return blob;
+      }
+
+      const styles = window.getComputedStyle(element);
+      const cssRadius = Number.parseFloat(styles.borderTopLeftRadius || '0') || 0;
+      const radius = Math.min(cssRadius * pixelRatio, canvas.width / 2, canvas.height / 2);
+
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.beginPath();
+      context.moveTo(radius, 0);
+      context.lineTo(canvas.width - radius, 0);
+      context.quadraticCurveTo(canvas.width, 0, canvas.width, radius);
+      context.lineTo(canvas.width, canvas.height - radius);
+      context.quadraticCurveTo(canvas.width, canvas.height, canvas.width - radius, canvas.height);
+      context.lineTo(radius, canvas.height);
+      context.quadraticCurveTo(0, canvas.height, 0, canvas.height - radius);
+      context.lineTo(0, radius);
+      context.quadraticCurveTo(0, 0, radius, 0);
+      context.closePath();
+      context.clip();
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      const roundedBlob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((nextBlob) => resolve(nextBlob), 'image/png');
+      });
+
+      return roundedBlob ?? blob;
+    } finally {
+      URL.revokeObjectURL(imageUrl);
+    }
+  };
+
   const renderCalendarBlob = async () => {
-    if (!exportCalendarRef.current) {
+    if (!calendarRef.current) {
       throw new Error('Calendário não encontrado para exportação.');
     }
 
-    const blob = await toBlob(exportCalendarRef.current, {
+    const pixelRatio = 3;
+
+    const blob = await toBlob(calendarRef.current, {
       cacheBust: true,
-      pixelRatio: 3,
+      pixelRatio,
       skipFonts: false,
       backgroundColor: 'transparent',
     });
@@ -350,7 +399,7 @@ export default function Home() {
       throw new Error('Não foi possível gerar a imagem do calendário.');
     }
 
-    return blob;
+    return applyRoundedTransparency(blob, calendarRef.current, pixelRatio);
   };
 
   const downloadCalendarBlob = (blob: Blob, fileName = getCalendarFileName()) => {
@@ -363,18 +412,33 @@ export default function Home() {
   };
 
   const exportCalendarAsPng = async (format?: PalmeirasCalendarSettings['canvasFormat']) => {
-    const targetFormat = format ?? calendarSettings.canvasFormat;
+    const previousFormat = calendarSettings.canvasFormat;
+    const targetFormat = format ?? previousFormat;
 
     try {
       setIsExporting(true);
-      flushSync(() => {
-        setExportFormat(targetFormat);
-      });
-      await waitForCalendarPaint();
+
+      if (targetFormat !== previousFormat) {
+        flushSync(() => {
+          setCalendarSettings((current) => ({
+            ...current,
+            canvasFormat: targetFormat,
+          }));
+        });
+        await waitForCalendarPaint();
+      }
 
       const blob = await renderCalendarBlob();
       downloadCalendarBlob(blob, format ? getCalendarFileNameByFormat(targetFormat) : getCalendarFileName());
     } finally {
+      if (targetFormat !== previousFormat) {
+        flushSync(() => {
+          setCalendarSettings((current) => ({
+            ...current,
+            canvasFormat: previousFormat,
+          }));
+        });
+      }
       setIsExporting(false);
     }
   };
@@ -390,13 +454,26 @@ export default function Home() {
       setIsExporting(true);
 
       for (const format of canvasFormatOptions) {
+        const previousFormat = calendarSettings.canvasFormat;
+
         flushSync(() => {
-          setExportFormat(format.key);
+          setCalendarSettings((current) => ({
+            ...current,
+            canvasFormat: format.key,
+          }));
         });
 
         await waitForCalendarPaint();
         const blob = await renderCalendarBlob();
         downloadCalendarBlob(blob, getCalendarFileNameByFormat(format.key));
+
+        flushSync(() => {
+          setCalendarSettings((current) => ({
+            ...current,
+            canvasFormat: previousFormat,
+          }));
+        });
+        await waitForCalendarPaint();
       }
     } finally {
       setIsExporting(false);
@@ -406,12 +483,6 @@ export default function Home() {
   const currentFormat = canvasFormatOptions.find((option) => option.key === calendarSettings.canvasFormat) ?? canvasFormatOptions[0];
   const basePreviewWidth = previewBaseWidths[calendarSettings.canvasFormat];
   const previewMaxWidth = `min(100%, ${Math.round(basePreviewWidth * calendarSettings.calendarScale)}px)`;
-  const exportBaseWidth = previewBaseWidths[exportFormat];
-  const exportCalendarSettings: PalmeirasCalendarSettings = {
-    ...calendarSettings,
-    canvasFormat: exportFormat,
-    calendarScale: 1,
-  };
 
   return (
     <div className="min-h-screen overflow-x-hidden overflow-y-auto bg-slate-950 px-3 py-2 text-slate-100 sm:px-4 lg:h-screen lg:overflow-hidden lg:px-5">
@@ -620,7 +691,7 @@ export default function Home() {
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-5">
-              <div className="mx-auto w-full max-w-[1100px]">
+              <div className="mx-auto w-full" style={{ maxWidth: previewMaxWidth }}>
                 <PalmeirasCalendar month={month} year={year} matches={matches} settings={calendarSettings} />
               </div>
             </div>
@@ -688,20 +759,6 @@ export default function Home() {
         onApplyPreset={applyCalendarPreset}
         onLogoUpload={handleLogoUpload}
       />
-
-      <div
-        aria-hidden="true"
-        className="pointer-events-none fixed left-[-200vw] top-0 opacity-0"
-        style={{ width: `${exportBaseWidth}px` }}
-      >
-        <PalmeirasCalendar
-          ref={exportCalendarRef}
-          month={month}
-          year={year}
-          matches={matches}
-          settings={exportCalendarSettings}
-        />
-      </div>
     </div>
   );
 }
