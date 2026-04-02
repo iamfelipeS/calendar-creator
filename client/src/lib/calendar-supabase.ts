@@ -44,11 +44,110 @@ const sanitizeFileName = (fileName: string) =>
     .replace(/-+/g, '-')
     .toLowerCase();
 
+const normalizeLogoFile = async (file: File) => {
+  if (!file.type.startsWith('image/')) {
+    return file;
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const nextImage = new Image();
+      nextImage.onload = () => resolve(nextImage);
+      nextImage.onerror = () => reject(new Error('Nao foi possivel carregar a imagem enviada.'));
+      nextImage.src = objectUrl;
+    });
+
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = image.naturalWidth;
+    sourceCanvas.height = image.naturalHeight;
+    const sourceContext = sourceCanvas.getContext('2d');
+
+    if (!sourceContext) {
+      return file;
+    }
+
+    sourceContext.drawImage(image, 0, 0);
+    const { data, width, height } = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const alpha = data[(y * width + x) * 4 + 3];
+
+        if (alpha > 8) {
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+        }
+      }
+    }
+
+    if (maxX < minX || maxY < minY) {
+      return file;
+    }
+
+    const cropWidth = maxX - minX + 1;
+    const cropHeight = maxY - minY + 1;
+    const longestSide = Math.max(cropWidth, cropHeight);
+    const padding = Math.round(longestSide * 0.16);
+    const outputSize = longestSide + padding * 2;
+
+    const outputCanvas = document.createElement('canvas');
+    outputCanvas.width = outputSize;
+    outputCanvas.height = outputSize;
+    const outputContext = outputCanvas.getContext('2d');
+
+    if (!outputContext) {
+      return file;
+    }
+
+    outputContext.clearRect(0, 0, outputSize, outputSize);
+
+    const offsetX = Math.round((outputSize - cropWidth) / 2);
+    const offsetY = Math.round((outputSize - cropHeight) / 2);
+
+    outputContext.drawImage(
+      sourceCanvas,
+      minX,
+      minY,
+      cropWidth,
+      cropHeight,
+      offsetX,
+      offsetY,
+      cropWidth,
+      cropHeight,
+    );
+
+    const normalizedBlob = await new Promise<Blob | null>((resolve) => {
+      outputCanvas.toBlob((blob) => resolve(blob), 'image/png');
+    });
+
+    if (!normalizedBlob) {
+      return file;
+    }
+
+    return new File([normalizedBlob], file.name.replace(/\.[^.]+$/, '') + '.png', {
+      type: 'image/png',
+      lastModified: Date.now(),
+    });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
 const uploadAsset = async (folder: 'branding' | 'teams', pathPrefix: string, file: File) => {
-  const safeName = sanitizeFileName(file.name || 'asset.png');
+  const normalizedFile = await normalizeLogoFile(file);
+  const safeName = sanitizeFileName(normalizedFile.name || 'asset.png');
   const filePath = `${folder}/${pathPrefix}-${Date.now()}-${safeName}`;
 
-  const { error } = await supabase.storage.from(CALENDAR_ASSET_BUCKET).upload(filePath, file, {
+  const { error } = await supabase.storage.from(CALENDAR_ASSET_BUCKET).upload(filePath, normalizedFile, {
     upsert: true,
     cacheControl: '3600',
   });
