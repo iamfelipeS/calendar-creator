@@ -14,6 +14,8 @@ export interface PalmeirasCalendarSettings {
   brandHandle: string;
   brandLogoUrl: string;
   logoScale: number;
+  teamCrestScale: number;
+  teamLabelScale: number;
   showYear: boolean;
   showWatermark: boolean;
   showFooter: boolean;
@@ -185,7 +187,7 @@ const toRgba = (hex: string, alpha: number) => {
 const CALENDAR_MODE_LAYOUT = {
   feedPortrait: {
     dayCellAspectRatio: 1.02,
-    crestScale: 1.61,
+    crestScale: 1.18,
     matchGap: 'gap-2.5 px-1.5 sm:gap-3 sm:px-2',
     dayCellPadding: 'p-0.5 sm:p-0.5',
     matchAlign: 'items-center justify-center',
@@ -193,12 +195,12 @@ const CALENDAR_MODE_LAYOUT = {
     dayNumberOffset: 'mb-0.5 pl-[5px] pt-0.5',
     crestSize: 'h-[42px] w-[42px] sm:h-[46px] sm:w-[46px]',
     crestFallbackSize: 'h-[42px] min-w-[42px] px-1 text-[10px] sm:h-[46px] sm:min-w-[46px] sm:text-[11px]',
-    teamLabelClass: 'mt-0 max-w-[64px] text-[11px] sm:max-w-[76px] sm:text-[12px]',
+    teamLabelClass: 'mt-2 max-w-[64px] text-[11px] sm:max-w-[76px] sm:text-[12px]',
     centerXClass: 'h-[36px] w-4 text-[16px] sm:h-[40px] sm:w-5 sm:text-[18px]',
   },
   square: {
     dayCellAspectRatio: 1.02,
-    crestScale: 1.61,
+    crestScale: 1.18,
     matchGap: 'gap-2.5 px-1.5 sm:gap-3 sm:px-2',
     dayCellPadding: 'p-0.5 sm:p-0.5',
     matchAlign: 'items-center justify-center',
@@ -206,12 +208,12 @@ const CALENDAR_MODE_LAYOUT = {
     dayNumberOffset: 'mb-0.5 pl-[5px] pt-0.5',
     crestSize: 'h-[42px] w-[42px] sm:h-[46px] sm:w-[46px]',
     crestFallbackSize: 'h-[42px] min-w-[42px] px-1 text-[10px] sm:h-[46px] sm:min-w-[46px] sm:text-[11px]',
-    teamLabelClass: 'mt-0 max-w-[64px] text-[11px] sm:max-w-[76px] sm:text-[12px]',
+    teamLabelClass: 'mt-2 max-w-[64px] text-[11px] sm:max-w-[76px] sm:text-[12px]',
     centerXClass: 'h-[36px] w-4 text-[16px] sm:h-[40px] sm:w-5 sm:text-[18px]',
   },
   story: {
     dayCellAspectRatio: 0.92,
-    crestScale: 1.61,
+    crestScale: 1.18,
     matchGap: 'grid-cols-1 grid-rows-[auto_auto_auto] gap-1.5 px-1',
     dayCellPadding: 'p-0.5 sm:p-0.5',
     matchAlign: 'items-center justify-center',
@@ -219,7 +221,7 @@ const CALENDAR_MODE_LAYOUT = {
     dayNumberOffset: 'mb-0.5 pl-[5px] pt-0.5',
     crestSize: 'h-[42px] w-[42px] sm:h-[46px] sm:w-[46px]',
     crestFallbackSize: 'h-[42px] min-w-[42px] px-1 text-[10px] sm:h-[46px] sm:min-w-[46px] sm:text-[11px]',
-    teamLabelClass: 'mt-0 max-w-[64px] text-[11px] sm:max-w-[76px] sm:text-[12px]',
+    teamLabelClass: 'mt-2 max-w-[64px] text-[11px] sm:max-w-[76px] sm:text-[12px]',
     centerXClass: 'h-4 text-[14px] sm:text-[16px]',
   },
 } as const;
@@ -229,6 +231,8 @@ export const defaultPalmeirasCalendarSettings: PalmeirasCalendarSettings = {
   brandHandle: '@meupalestra',
   brandLogoUrl: '',
   logoScale: 1,
+  teamCrestScale: 1.25,
+  teamLabelScale: 1.15,
   showYear: false,
   showWatermark: true,
   showFooter: true,
@@ -268,6 +272,8 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
     brandHandle,
     brandLogoUrl,
     logoScale,
+    teamCrestScale,
+    teamLabelScale,
     showYear,
     showWatermark,
     showFooter,
@@ -295,8 +301,14 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
   const isCompact = density === 'compact';
   const usesVerticalMatchLayout = canvasFormat === 'story';
   const modeLayout = CALENDAR_MODE_LAYOUT[canvasFormat];
-  const crestScale = modeLayout.crestScale;
+  const crestScale = modeLayout.crestScale * teamCrestScale;
   const dayCellAspectRatio = modeLayout.dayCellAspectRatio;
+  const footerClass = canvasFormat === 'square' ? 'shrink-0 border-t pt-1.5 pb-0.5 text-center sm:pt-2' : 'shrink-0 border-t pt-2.5 text-center sm:pt-3';
+  const footerTitleClass =
+    canvasFormat === 'square'
+      ? 'text-[9px] font-light tracking-[0.14em] sm:text-[10px] md:text-xs md:tracking-[0.2em]'
+      : 'text-[10px] font-light tracking-[0.18em] sm:text-xs md:text-sm md:tracking-[0.26em]';
+  const footerSeasonClass = canvasFormat === 'square' ? 'mt-0.5 text-[8px] sm:text-[9px] md:text-[10px]' : 'mt-1 text-[9px] sm:text-[10px] md:text-xs';
 
   const isMatchDay = (day: number) => matches.some((m) => m.day === day);
   const getMatch = (day: number) => matches.find((m) => m.day === day);
@@ -456,6 +468,11 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
             const awayUndefined = isUndefinedTeamName(match?.awayTeam);
             const showHomeLabel = Boolean(match?.homeLogoUrl) && !homeUndefined;
             const showAwayLabel = Boolean(match?.awayLogoUrl) && !awayUndefined;
+            const crestClass = compactLayout ? 'h-[34px] w-[34px]' : modeLayout.crestSize;
+            const teamLabelStyle = {
+              fontSize: `${(compactLayout ? 8 : 11) * teamLabelScale}px`,
+              maxWidth: `${compactLayout ? 58 : 80}px`,
+            };
 
             return (
               <div
@@ -507,7 +524,7 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
                         >
                             <div className="flex min-w-0 flex-col items-center justify-center">
                               {homeUndefined ? (
-                                <div className={`${isCompact ? 'h-[18px] w-[18px]' : modeLayout.crestSize} flex shrink-0 items-center justify-center rounded-full bg-emerald-950/30 text-amber-200 shadow-sm`}>
+                                <div className={`${crestClass} flex shrink-0 items-center justify-center rounded-full bg-emerald-950/30 text-amber-200 shadow-sm`}>
                                   <svg viewBox="0 0 24 24" className={`${isCompact ? 'h-3 w-3' : 'h-[20px] w-[20px] sm:h-[22px] sm:w-[22px]'}`} fill="currentColor" aria-hidden="true">
                                     <path d="M7 4V2h10v2h3v3c0 3.2-2 5.8-5 6.7V17h2.5a1 1 0 0 1 0 2H6.5a1 1 0 1 1 0-2H9v-3.3C6 12.8 4 10.2 4 7V4h3Zm10 2H7v1c0 2.3 1.6 4.2 3.8 4.8l1.2.3 1.2-.3C15.4 11.2 17 9.3 17 7V6Zm-11 0H6v1c0 1.1.4 2.1 1 2.9A5.9 5.9 0 0 1 6 7V6Zm12 0v1c0 1.1-.4 2.1-1 2.9A5.9 5.9 0 0 0 18 7V6Z" />
                                   </svg>
@@ -516,7 +533,7 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
                                 <img
                                   src={match.homeLogoUrl}
                                   alt={match.homeTeam}
-                                  className={`${isCompact ? 'h-[18px] w-[18px]' : modeLayout.crestSize} shrink-0 object-contain drop-shadow-md`}
+                                  className={`${crestClass} shrink-0 object-contain drop-shadow-md`}
                                   style={{ transform: `scale(${crestScale})`, transformOrigin: 'center' }}
                                 />
                               ) : (
@@ -525,7 +542,10 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
                                 </div>
                               )}
                               {showHomeLabel ? (
-                                <span className={`${compactLayout ? 'mt-0.5 max-w-[36px] text-[6px]' : modeLayout.teamLabelClass} min-w-0 truncate text-center font-semibold uppercase leading-none tracking-[0.01em] text-emerald-50/92`}>
+                                <span
+                                  className={`${compactLayout ? 'mt-2' : modeLayout.teamLabelClass} min-w-0 truncate text-center font-semibold uppercase leading-none tracking-[0.01em] text-emerald-50/92`}
+                                  style={teamLabelStyle}
+                                >
                                   {homePlaceholder}
                                 </span>
                               ) : null}
@@ -547,7 +567,7 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
                             </div>
                             <div className="flex min-w-0 flex-col items-center justify-center">
                               {awayUndefined ? (
-                                <div className={`${isCompact ? 'h-[18px] w-[18px]' : modeLayout.crestSize} flex shrink-0 items-center justify-center rounded-full bg-emerald-950/30 text-amber-200 shadow-sm`}>
+                                <div className={`${crestClass} flex shrink-0 items-center justify-center rounded-full bg-emerald-950/30 text-amber-200 shadow-sm`}>
                                   <svg viewBox="0 0 24 24" className={`${isCompact ? 'h-3 w-3' : 'h-[20px] w-[20px] sm:h-[22px] sm:w-[22px]'}`} fill="currentColor" aria-hidden="true">
                                     <path d="M7 4V2h10v2h3v3c0 3.2-2 5.8-5 6.7V17h2.5a1 1 0 0 1 0 2H6.5a1 1 0 1 1 0-2H9v-3.3C6 12.8 4 10.2 4 7V4h3Zm10 2H7v1c0 2.3 1.6 4.2 3.8 4.8l1.2.3 1.2-.3C15.4 11.2 17 9.3 17 7V6Zm-11 0H6v1c0 1.1.4 2.1 1 2.9A5.9 5.9 0 0 1 6 7V6Zm12 0v1c0 1.1-.4 2.1-1 2.9A5.9 5.9 0 0 0 18 7V6Z" />
                                   </svg>
@@ -556,7 +576,7 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
                                 <img
                                   src={match.awayLogoUrl}
                                   alt={match.awayTeam}
-                                  className={`${isCompact ? 'h-[18px] w-[18px]' : modeLayout.crestSize} shrink-0 object-contain drop-shadow-md`}
+                                  className={`${crestClass} shrink-0 object-contain drop-shadow-md`}
                                   style={{ transform: `scale(${crestScale})`, transformOrigin: 'center' }}
                                 />
                               ) : (
@@ -565,7 +585,10 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
                                 </div>
                               )}
                               {showAwayLabel ? (
-                                <span className={`${compactLayout ? 'mt-0.5 max-w-[36px] text-[6px]' : modeLayout.teamLabelClass} min-w-0 truncate text-center font-semibold uppercase leading-none tracking-[0.01em] text-emerald-50/92`}>
+                                <span
+                                  className={`${compactLayout ? 'mt-2' : modeLayout.teamLabelClass} min-w-0 truncate text-center font-semibold uppercase leading-none tracking-[0.01em] text-emerald-50/92`}
+                                  style={teamLabelStyle}
+                                >
                                   {awayPlaceholder}
                                 </span>
                               ) : null}
@@ -591,11 +614,11 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
         </div>
 
         {showFooter ? (
-          <div className="border-t pt-2.5 text-center sm:pt-3" style={{ borderColor: toRgba(accentColor, 0.18) }}>
-            <p className="text-[10px] font-light tracking-[0.18em] sm:text-xs md:text-sm md:tracking-[0.26em]" style={{ fontFamily: "'Lato', sans-serif", color: toRgba(accentColor, 0.86) }}>
+          <div className={footerClass} style={{ borderColor: toRgba(accentColor, 0.18) }}>
+            <p className={footerTitleClass} style={{ fontFamily: "'Lato', sans-serif", color: toRgba(accentColor, 0.86) }}>
               CALENDÁRIO OFICIAL • PALMEIRAS
             </p>
-            <p className="mt-1 text-[9px] sm:text-[10px] md:text-xs" style={{ color: toRgba(accentColor, 0.64) }}>
+            <p className={footerSeasonClass} style={{ color: toRgba(accentColor, 0.64) }}>
               Temporada 2026
             </p>
           </div>

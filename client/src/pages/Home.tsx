@@ -103,7 +103,7 @@ const parseMatchesInput = (input: string, persistedTeamLogos?: Record<string, st
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => {
+    .map((line): MatchDay | null => {
       const match = line.match(/^(\d{1,2})\s*-\s*(.+?)\s+x\s+(.+)$/i);
       if (!match) {
         return null;

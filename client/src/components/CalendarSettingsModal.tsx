@@ -122,6 +122,81 @@ const modalPreviewWidths: Record<PalmeirasCalendarSettings['canvasFormat'], numb
   story: 749,
 };
 
+const modalPreviewDisplayWidths: Record<PalmeirasCalendarSettings['canvasFormat'], number> = {
+  feedPortrait: 280,
+  square: 280,
+  story: 180,
+};
+
+const watermarkPositionPresets: Array<{
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  icon: React.ReactNode;
+}> = [
+  {
+    id: 'center',
+    label: 'Centro',
+    x: 0,
+    y: 0,
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+        <circle cx="12" cy="12" r="2.5" />
+        <path d="M12 4v3M12 17v3M4 12h3M17 12h3" />
+      </svg>
+    ),
+  },
+  {
+    id: 'top',
+    label: 'Topo',
+    x: 0,
+    y: -140,
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 5v14" />
+        <path d="M7 10l5-5 5 5" />
+      </svg>
+    ),
+  },
+  {
+    id: 'bottom',
+    label: 'Base',
+    x: 0,
+    y: 140,
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 5v14" />
+        <path d="M7 14l5 5 5-5" />
+      </svg>
+    ),
+  },
+  {
+    id: 'left',
+    label: 'Esq',
+    x: -120,
+    y: 0,
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M19 12H5" />
+        <path d="M10 7l-5 5 5 5" />
+      </svg>
+    ),
+  },
+  {
+    id: 'right',
+    label: 'Dir',
+    x: 120,
+    y: 0,
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M5 12h14" />
+        <path d="M14 7l5 5-5 5" />
+      </svg>
+    ),
+  },
+];
+
 export default function CalendarSettingsModal({
   isOpen,
   settings,
@@ -136,9 +211,8 @@ export default function CalendarSettingsModal({
 }: CalendarSettingsModalProps) {
   const previewAspectRatio = settings.canvasFormat === 'square' ? 1080 / 1080 : settings.canvasFormat === 'story' ? 1080 / 1920 : 1080 / 1350;
   const previewBaseWidth = modalPreviewWidths[settings.canvasFormat];
-  const previewBaseHeight = previewBaseWidth / previewAspectRatio;
-  const previewScale = settings.canvasFormat === 'story' ? 0.2 : 0.24;
-  const previewWrapperHeight = previewBaseHeight * previewScale;
+  const previewScale = modalPreviewDisplayWidths[settings.canvasFormat] / previewBaseWidth;
+  const previewDisplayHeight = (previewBaseWidth / previewAspectRatio) * previewScale;
 
   if (!isOpen) {
     return null;
@@ -168,8 +242,8 @@ export default function CalendarSettingsModal({
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 pt-5 pr-3 sm:px-5 sm:pb-5 sm:pt-6 sm:pr-4 lg:px-6 lg:pb-6 lg:pt-6">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.85fr)] lg:gap-6">
-          <div className="space-y-4 lg:pr-2 lg:space-y-5">
-            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+            <div className="space-y-4 lg:pr-2 lg:space-y-5">
+              <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
               <p className="text-sm font-semibold text-white">Branding</p>
               <p className="mt-1 text-xs text-slate-400">Ajustes simples para logo, handle e nome interno do app.</p>
 
@@ -350,6 +424,55 @@ export default function CalendarSettingsModal({
             </section>
 
             <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+              <p className="text-sm font-semibold text-white">Escudos e nomes dos times</p>
+              <p className="mt-1 text-xs text-slate-400">Ajuste a leitura das partidas no calendário, principalmente no formato quadrado.</p>
+
+              <div className="mt-4 space-y-4">
+                <label className="block">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">Tamanho dos escudos</p>
+                    </div>
+                    <span className="rounded-full border border-white/10 bg-slate-950/60 px-3 py-1 text-xs font-semibold text-emerald-200">
+                      {Math.round(settings.teamCrestScale * 100)}%
+                    </span>
+                  </div>
+
+                  <input
+                    type="range"
+                    min={0.75}
+                    max={1.55}
+                    step={0.05}
+                    value={settings.teamCrestScale}
+                    onChange={(event) => onChange('teamCrestScale', Number(event.target.value))}
+                    className="mt-3 w-full accent-emerald-400"
+                  />
+                </label>
+
+                <label className="block">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">Tamanho dos nomes</p>
+                    </div>
+                    <span className="rounded-full border border-white/10 bg-slate-950/60 px-3 py-1 text-xs font-semibold text-emerald-200">
+                      {Math.round(settings.teamLabelScale * 100)}%
+                    </span>
+                  </div>
+
+                  <input
+                    type="range"
+                    min={0.85}
+                    max={1.45}
+                    step={0.05}
+                    value={settings.teamLabelScale}
+                    onChange={(event) => onChange('teamLabelScale', Number(event.target.value))}
+                    className="mt-3 w-full accent-emerald-400"
+                  />
+                </label>
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
               <p className="text-sm font-semibold text-white">Escala e intensidade</p>
               <p className="mt-1 text-xs text-slate-400">Ajustes finos para o tamanho geral e o peso do watermark.</p>
 
@@ -377,6 +500,40 @@ export default function CalendarSettingsModal({
                     />
                   </label>
                 ))}
+              </div>
+
+              <div className="mt-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">Posição rápida</p>
+                    <p className="mt-1 text-xs text-slate-400">Atalhos simples para reposicionar a marca d agua.</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {watermarkPositionPresets.map((preset) => {
+                    const isActive = settings.watermarkOffsetX === preset.x && settings.watermarkOffsetY === preset.y;
+
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => {
+                          onChange('watermarkOffsetX', preset.x);
+                          onChange('watermarkOffsetY', preset.y);
+                        }}
+                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                          isActive
+                            ? 'border-emerald-400/45 bg-emerald-400/10 text-white'
+                            : 'border-white/10 bg-slate-950/40 text-slate-300 hover:border-emerald-400/25 hover:bg-slate-950/70 hover:text-white'
+                        }`}
+                      >
+                        <span className="text-emerald-200">{preset.icon}</span>
+                        <span>{preset.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </section>
 
@@ -413,52 +570,52 @@ export default function CalendarSettingsModal({
             </section>
           </div>
 
-          <div className="space-y-4 lg:sticky lg:top-0 lg:self-start lg:pr-1 lg:space-y-5">
-            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-              <p className="text-sm font-semibold text-white">Preview rapido</p>
-              <p className="mt-1 text-xs text-slate-400">Leitura resumida do visual configurado.</p>
+            <div className="space-y-4 lg:sticky lg:top-0 lg:self-start lg:pr-1 lg:space-y-5">
+              <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+                <p className="text-sm font-semibold text-white">Preview rapido</p>
+                <p className="mt-1 text-xs text-slate-400">Leitura fiel do modo atual configurado.</p>
 
-              <div className="mt-4 flex justify-center overflow-hidden rounded-[22px] border border-white/10 bg-slate-950/20 p-3 sm:p-4">
-                <div
-                  className="relative w-full overflow-hidden transition-all duration-200"
-                  style={{
-                    height: `${previewWrapperHeight}px`,
-                    maxWidth: `${previewBaseWidth * previewScale}px`,
-                  }}
-                >
+                <div className="mt-4 flex justify-center overflow-hidden rounded-[22px] border border-white/10 bg-slate-950/20 p-3 sm:p-4">
                   <div
+                    className="relative overflow-hidden transition-all duration-200"
                     style={{
-                      width: `${previewBaseWidth}px`,
-                      transform: `scale(${previewScale})`,
-                      transformOrigin: 'top center',
+                      width: `${modalPreviewDisplayWidths[settings.canvasFormat]}px`,
+                      height: `${previewDisplayHeight}px`,
                     }}
                   >
-                    <PalmeirasCalendar month={month} year={year} matches={matches} settings={settings} />
+                    <div
+                      style={{
+                        width: `${previewBaseWidth}px`,
+                        transform: `scale(${previewScale})`,
+                        transformOrigin: 'top left',
+                      }}
+                    >
+                      <PalmeirasCalendar month={month} year={year} matches={matches} settings={settings} />
+                    </div>
                   </div>
                 </div>
-              </div>
-            </section>
+              </section>
 
-            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-              <p className="text-sm font-semibold text-white">Resumo atual</p>
-              <div className="mt-4 space-y-2 text-sm text-slate-300">
-                <div className="flex items-center justify-between">
-                  <span>Formato</span>
-                  <span className="text-emerald-200">
-                    {settings.canvasFormat === 'square' ? 'quadrado' : settings.canvasFormat === 'story' ? 'story' : 'retrato'}
-                  </span>
+              <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+                <p className="text-sm font-semibold text-white">Resumo atual</p>
+                <div className="mt-4 space-y-2 text-sm text-slate-300">
+                  <div className="flex items-center justify-between">
+                    <span>Formato</span>
+                    <span className="text-emerald-200">
+                      {settings.canvasFormat === 'square' ? 'quadrado' : settings.canvasFormat === 'story' ? 'story' : 'retrato'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Marca d agua</span>
+                    <span className="text-emerald-200">{settings.showWatermark ? 'ativa' : 'oculta'}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Cor destaque</span>
+                    <span className="font-mono text-emerald-200">{settings.accentColor}</span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span>Marca d agua</span>
-                  <span className="text-emerald-200">{settings.showWatermark ? 'ativa' : 'oculta'}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Cor destaque</span>
-                  <span className="font-mono text-emerald-200">{settings.accentColor}</span>
-                </div>
-              </div>
-            </section>
-          </div>
+              </section>
+            </div>
           </div>
         </div>
       </div>
