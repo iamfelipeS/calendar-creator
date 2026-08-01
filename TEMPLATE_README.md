@@ -1,6 +1,6 @@
-# Palmeiras Instagram Calendar Template
+# Calendar Creator
 
-Um template profissional e elegante de calendário mensal para o Palmeiras, pronto para ser usado no Instagram Stories e Feed.
+Ferramenta para criar, salvar e exportar calendários visuais de partidas. Este repositório inclui um template demonstrativo do Palmeiras pronto para Instagram Stories e Feed.
 
 ## 📋 Características
 
@@ -249,7 +249,7 @@ Para dúvidas ou sugestões sobre o template, entre em contato com o desenvolved
 
 ---
 
-**Desenvolvido com ❤️ para o Palmeiras**
+**Desenvolvido para criar calendários visuais de partidas**
 
 Versão: 1.0.0  
 Última atualização: Abril 2026

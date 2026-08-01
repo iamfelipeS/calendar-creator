@@ -157,7 +157,7 @@ def main():
         )
     else:
         # Default rendering
-        print("Palmeiras Calendar Renderer")
+        print("Calendar Creator Renderer")
         print("=" * 50)
         print("\nUsage: python3 render_calendar.py [output_path] [month] [year]")
         print("\nExample: python3 render_calendar.py calendar_abril_2026.png ABRIL 2026")

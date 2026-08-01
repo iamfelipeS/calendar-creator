@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { toBlob } from 'html-to-image';
 import { flushSync } from 'react-dom';
+import { Link } from 'wouter';
 import CalendarAssetsModal from '@/components/CalendarAssetsModal';
 import CalendarSettingsModal from '@/components/CalendarSettingsModal';
 import PalmeirasCalendar, {
@@ -9,6 +10,7 @@ import PalmeirasCalendar, {
   defaultPalmeirasCalendarSettings,
 } from '@/components/PalmeirasCalendar';
 import {
+  fetchLatestCalendarProject,
   fetchLatestBranding,
   fetchTeamAssets,
   normalizeTeamSlug,
@@ -16,8 +18,17 @@ import {
   saveCalendarProject,
   saveTeamAsset,
   type CalendarBrandingRecord,
+  type CalendarProjectRecord,
   type CalendarTeamAssetRecord,
+  type PersistedCalendarVisualSettings,
 } from '@/lib/calendar-supabase';
+import {
+  getPersistedTeamLogos,
+  parseMatchesInput,
+  saveCurrentCalendarTeams,
+  serializeMatchesText,
+  toCalendarProjectMatches,
+} from '@/lib/calendar-matches';
 
 const canvasFormatOptions: Array<{
   key: PalmeirasCalendarSettings['canvasFormat'];
@@ -36,6 +47,8 @@ const previewBaseWidths: Record<PalmeirasCalendarSettings['canvasFormat'], numbe
   story: 749,
 };
 
+type ProjectSaveStatus = 'saved' | 'saving' | 'error' | 'unsaved';
+
 const initialMatchesText = `02 - Palmeiras x Grêmio
 05 - Bahia x Palmeiras
 08 - Atlético Junior x Palmeiras
@@ -46,98 +59,74 @@ const initialMatchesText = `02 - Palmeiras x Grêmio
 26 - Red Bull Bragantino x Palmeiras
 29 - Cerro Porteño x Palmeiras`;
 
-const createTeamBadge = (label: string, background: string, foreground = '#ffffff') =>
-  `data:image/svg+xml;utf8,${encodeURIComponent(`
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-      <circle cx="24" cy="24" r="23" fill="${background}" />
-      <text
-        x="24"
-        y="29"
-        text-anchor="middle"
-        font-family="Arial, Helvetica, sans-serif"
-        font-size="16"
-        font-weight="700"
-        fill="${foreground}"
-        letter-spacing=".6"
-      >
-        ${label}
-      </text>
-    </svg>
-  `)}`;
+const isCalendarFormat = (value: unknown): value is PalmeirasCalendarSettings['canvasFormat'] =>
+  value === 'feedPortrait' || value === 'square' || value === 'story';
 
-const teamLogos: Record<string, string> = {
-  PALMEIRAS: createTeamBadge('PAL', '#0b5f2e'),
-  GREMIO: createTeamBadge('GRE', '#2f80ed'),
-  BAHIA: createTeamBadge('BAH', '#2563eb'),
-  'ATLETICO JUNIOR': createTeamBadge('JUN', '#dc2626'),
-  JUNIOR: createTeamBadge('JUN', '#dc2626'),
-  CORINTHIANS: createTeamBadge('COR', '#111827'),
-  'SPORTING CRISTAL': createTeamBadge('SCR', '#0ea5e9'),
-  'ATHLETICO PARANAENSE': createTeamBadge('CAP', '#b91c1c'),
-  JACUIPENSE: createTeamBadge('JAC', '#7c3aed'),
-  'RED BULL BRAGANTINO': createTeamBadge('RBB', '#ef4444'),
-  BRAGANTINO: createTeamBadge('BRA', '#ef4444'),
-  'CERRO PORTENO': createTeamBadge('CER', '#1d4ed8'),
-  'CERRO PORTEÑO': createTeamBadge('CER', '#1d4ed8'),
+const isCalendarDensity = (value: unknown): value is PalmeirasCalendarSettings['density'] =>
+  value === 'compact' || value === 'comfortable';
+
+const getValidatedVisualSettings = (value: unknown): Partial<PersistedCalendarVisualSettings> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const visualSettings = { ...(value as Partial<PersistedCalendarVisualSettings>) };
+
+  if (visualSettings.density !== undefined && !isCalendarDensity(visualSettings.density)) {
+    delete visualSettings.density;
+  }
+
+  return visualSettings;
 };
 
-const normalizeTeamKey = (teamName: string) =>
-  teamName
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^A-Za-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toUpperCase();
-
-const isUndefinedTeam = (teamName: string) => {
-  const normalized = normalizeTeamKey(teamName);
-  return normalized.includes('A DEFINIR') || normalized.includes('TBD');
+const getPersistableVisualSettings = (settings: PalmeirasCalendarSettings): PersistedCalendarVisualSettings => {
+  const { canvasFormat: _canvasFormat, ...visualSettings } = settings;
+  return visualSettings;
 };
 
-const getTeamLogo = (teamName: string, persistedTeamLogos?: Record<string, string>) =>
-  persistedTeamLogos?.[normalizeTeamKey(teamName)] ?? teamLogos[normalizeTeamKey(teamName)] ?? '';
+const getHydratedCalendarSettings = ({
+  branding,
+  project,
+}: {
+  branding: CalendarBrandingRecord | null;
+  project: CalendarProjectRecord | null;
+}): PalmeirasCalendarSettings => {
+  const visualSettings = getValidatedVisualSettings(project?.visual_settings);
+  const calendarFormat = isCalendarFormat(project?.calendar_format)
+    ? project.calendar_format
+    : defaultPalmeirasCalendarSettings.canvasFormat;
 
-const parseMatchesInput = (input: string, persistedTeamLogos?: Record<string, string>): MatchDay[] => {
-  return input
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line): MatchDay | null => {
-      const match = line.match(/^(\d{1,2})\s*-\s*(.+?)\s+x\s+(.+)$/i);
-      if (!match) {
-        return null;
-      }
+  return {
+    ...defaultPalmeirasCalendarSettings,
+    ...(branding
+      ? {
+          appTitle: branding.page_name || defaultPalmeirasCalendarSettings.appTitle,
+          brandHandle: branding.handle || defaultPalmeirasCalendarSettings.brandHandle,
+          brandLogoUrl: branding.logo_url || defaultPalmeirasCalendarSettings.brandLogoUrl,
+        }
+      : {}),
+    ...visualSettings,
+    canvasFormat: calendarFormat,
+  };
+};
 
-      const day = Number(match[1]);
-      const homeTeam = match[2].trim();
-      const awayTeam = match[3].trim();
-      const homeUndefined = isUndefinedTeam(homeTeam);
-      const awayUndefined = isUndefinedTeam(awayTeam);
+const getProjectMatchesText = (project: CalendarProjectRecord) => {
+  if (Array.isArray(project.matches) && project.matches.length > 0) {
+    return serializeMatchesText(project.matches);
+  }
 
-      if (!day || !homeTeam || !awayTeam) {
-        return null;
-      }
-
-      return {
-        day,
-        homeTeam,
-        awayTeam,
-        homeLogoUrl: homeUndefined ? undefined : getTeamLogo(homeTeam, persistedTeamLogos) || undefined,
-        awayLogoUrl: awayUndefined ? undefined : getTeamLogo(awayTeam, persistedTeamLogos) || undefined,
-        isUndefined: homeUndefined || awayUndefined,
-      };
-    })
-    .filter((item): item is MatchDay => item !== null);
+  return project.matches_text || '';
 };
 
 export default function Home() {
   const calendarRef = useRef<HTMLDivElement | null>(null);
+  const isHydratingRef = useRef(true);
   const [month, setMonth] = useState('ABRIL');
   const [year, setYear] = useState('2026');
   const [matchesText, setMatchesText] = useState(initialMatchesText);
   const [teamAssets, setTeamAssets] = useState<Record<string, CalendarTeamAssetRecord>>({});
   const [brandingRecord, setBrandingRecord] = useState<CalendarBrandingRecord | null>(null);
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [matches, setMatches] = useState<MatchDay[]>(() => parseMatchesInput(initialMatchesText));
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAssetsOpen, setIsAssetsOpen] = useState(false);
@@ -145,17 +134,15 @@ export default function Home() {
   const [calendarSettings, setCalendarSettings] = useState<PalmeirasCalendarSettings>(defaultPalmeirasCalendarSettings);
   const [isExporting, setIsExporting] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [isLoadingAssets, setIsLoadingAssets] = useState(false);
+  const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
+  const [isLoadingAssets, setIsLoadingAssets] = useState(true);
   const [isSavingBranding, setIsSavingBranding] = useState(false);
   const [savingTeamSlug, setSavingTeamSlug] = useState<string | null>(null);
-  const [isSavingProject, setIsSavingProject] = useState(false);
+  const [projectSaveStatus, setProjectSaveStatus] = useState<ProjectSaveStatus>('saved');
   const [supabaseNotice, setSupabaseNotice] = useState<string | null>(null);
 
   const persistedTeamLogos = useMemo(
-    () =>
-      Object.fromEntries(
-        Object.values(teamAssets).map((asset) => [asset.team_slug, asset.logo_url]),
-      ) as Record<string, string>,
+    () => getPersistedTeamLogos(teamAssets),
     [teamAssets],
   );
 
@@ -173,38 +160,60 @@ export default function Home() {
   }, [matches]);
 
   useEffect(() => {
-    const loadSupabaseAssets = async () => {
-      try {
-        setIsLoadingAssets(true);
-        const [branding, storedTeamAssets] = await Promise.all([fetchLatestBranding(), fetchTeamAssets()]);
+    saveCurrentCalendarTeams(calendarTeams);
+  }, [calendarTeams]);
 
-        setBrandingRecord(branding);
-        setTeamAssets(storedTeamAssets);
+  useEffect(() => {
+    const loadSupabaseData = async () => {
+      isHydratingRef.current = true;
+      setIsLoadingAssets(true);
 
-        if (branding) {
-          setCalendarSettings((current) => ({
-            ...current,
-            appTitle: branding.page_name || current.appTitle,
-            brandHandle: branding.handle || current.brandHandle,
-            brandLogoUrl: branding.logo_url || current.brandLogoUrl,
-          }));
-        }
+      const [brandingResult, teamAssetsResult, projectResult] = await Promise.allSettled([
+        fetchLatestBranding(),
+        fetchTeamAssets(),
+        fetchLatestCalendarProject(),
+      ]);
 
-        setMatches(parseMatchesInput(matchesText, Object.fromEntries(Object.values(storedTeamAssets).map((asset) => [asset.team_slug, asset.logo_url]))));
-      } catch (error) {
-        console.error('Erro ao carregar branding e escudos do Supabase', error);
-        setSupabaseNotice('Nao foi possivel carregar assets salvos do Supabase agora.');
-      } finally {
-        setIsLoadingAssets(false);
+      const branding = brandingResult.status === 'fulfilled' ? brandingResult.value : null;
+      const storedTeamAssets = teamAssetsResult.status === 'fulfilled' ? teamAssetsResult.value : {};
+      const latestProject = projectResult.status === 'fulfilled' ? projectResult.value : null;
+      const loadErrors = [brandingResult, teamAssetsResult, projectResult].filter((result) => result.status === 'rejected');
+
+      if (loadErrors.length > 0) {
+        console.error('Erro ao carregar dados do Supabase', loadErrors);
+        setSupabaseNotice('Alguns dados salvos nao puderam ser carregados agora.');
       }
+
+      const hydratedMatchesText = latestProject ? getProjectMatchesText(latestProject) : initialMatchesText;
+      const persistedLogos = getPersistedTeamLogos(storedTeamAssets);
+
+      setBrandingRecord(branding);
+      setTeamAssets(storedTeamAssets);
+      setCurrentProjectId(latestProject?.id ?? null);
+      setMonth(latestProject?.month || 'ABRIL');
+      setYear(latestProject?.year || '2026');
+      setMatchesText(hydratedMatchesText);
+      setCalendarSettings(getHydratedCalendarSettings({ branding, project: latestProject }));
+      setMatches(parseMatchesInput(hydratedMatchesText, persistedLogos));
+      setProjectSaveStatus('saved');
+      setIsLoadingAssets(false);
+      setIsInitialLoadComplete(true);
+      isHydratingRef.current = false;
     };
 
-    void loadSupabaseAssets();
+    void loadSupabaseData();
   }, []);
+
+  const markProjectUnsaved = () => {
+    if (!isHydratingRef.current) {
+      setProjectSaveStatus('unsaved');
+    }
+  };
 
   const handleGenerate = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setMatches(parseMatchesInput(matchesText, persistedTeamLogos));
+    markProjectUnsaved();
   };
 
   const toggleCalendarSetting = (key: keyof PalmeirasCalendarSettings) => {
@@ -212,6 +221,7 @@ export default function Home() {
       ...current,
       [key]: !current[key],
     }));
+    markProjectUnsaved();
   };
 
   const updateCalendarSetting = <K extends keyof PalmeirasCalendarSettings>(key: K, value: PalmeirasCalendarSettings[K]) => {
@@ -219,6 +229,7 @@ export default function Home() {
       ...current,
       [key]: value,
     }));
+    markProjectUnsaved();
   };
 
   const applyCalendarPreset = (preset: Partial<PalmeirasCalendarSettings>) => {
@@ -226,6 +237,7 @@ export default function Home() {
       ...current,
       ...preset,
     }));
+    markProjectUnsaved();
   };
 
   const handleLogoUpload = async (file: File | null) => {
@@ -261,6 +273,7 @@ export default function Home() {
         brandHandle: savedBranding.handle,
         brandLogoUrl: savedBranding.logo_url ?? '',
       }));
+      markProjectUnsaved();
       setSupabaseNotice('Branding salvo no Supabase.');
     } catch (error) {
       console.error('Erro ao salvar branding', error);
@@ -278,6 +291,7 @@ export default function Home() {
       const savedAsset = await saveTeamAsset({
         teamName,
         existingId: teamAssets[teamSlug]?.id,
+        existingStoragePath: teamAssets[teamSlug]?.storage_path ?? null,
         logoFile: file,
       });
 
@@ -287,7 +301,8 @@ export default function Home() {
       };
 
       setTeamAssets(nextAssets);
-      setMatches(parseMatchesInput(matchesText, Object.fromEntries(Object.values(nextAssets).map((asset) => [asset.team_slug, asset.logo_url]))));
+      setMatches(parseMatchesInput(matchesText, getPersistedTeamLogos(nextAssets)));
+      markProjectUnsaved();
       setSupabaseNotice(`Escudo salvo para ${teamName}.`);
     } catch (error) {
       console.error('Erro ao salvar escudo', error);
@@ -299,20 +314,42 @@ export default function Home() {
 
   const handleSaveProject = async () => {
     try {
-      setIsSavingProject(true);
-      await saveCalendarProject({
+      setProjectSaveStatus('saving');
+      const currentMatches = parseMatchesInput(matchesText, persistedTeamLogos);
+      setMatches(currentMatches);
+      const savedProject = await saveCalendarProject({
+        projectId: currentProjectId,
+        projectName: calendarSettings.appTitle,
         month,
         year,
         matchesText,
+        matches: toCalendarProjectMatches(currentMatches),
+        calendarFormat: calendarSettings.canvasFormat,
+        visualSettings: getPersistableVisualSettings(calendarSettings),
         brandingId: brandingRecord?.id ?? null,
       });
+      setCurrentProjectId(savedProject.id);
+      setProjectSaveStatus('saved');
       setSupabaseNotice('Calendario salvo no Supabase.');
     } catch (error) {
       console.error('Erro ao salvar calendario', error);
+      setProjectSaveStatus('error');
       setSupabaseNotice('Nao foi possivel salvar o calendario no Supabase.');
-    } finally {
-      setIsSavingProject(false);
     }
+  };
+
+  const isSavingProject = projectSaveStatus === 'saving';
+  const projectSaveStatusLabel: Record<ProjectSaveStatus, string> = {
+    saved: 'Salvo',
+    saving: 'Salvando...',
+    error: 'Erro ao salvar',
+    unsaved: 'Alteracoes nao salvas',
+  };
+  const projectSaveStatusClass: Record<ProjectSaveStatus, string> = {
+    saved: 'text-emerald-200',
+    saving: 'text-slate-300',
+    error: 'text-red-200',
+    unsaved: 'text-amber-200',
   };
 
   const getCalendarFileName = () => {
@@ -483,6 +520,7 @@ export default function Home() {
   const currentFormat = canvasFormatOptions.find((option) => option.key === calendarSettings.canvasFormat) ?? canvasFormatOptions[0];
   const basePreviewWidth = previewBaseWidths[calendarSettings.canvasFormat];
   const previewMaxWidth = `min(100%, ${Math.round(basePreviewWidth * calendarSettings.calendarScale)}px)`;
+  const shouldShowInitialLoader = !isInitialLoadComplete;
 
   return (
     <div className="min-h-screen overflow-x-hidden overflow-y-auto bg-slate-950 px-3 py-2 text-slate-100 sm:px-4 lg:h-screen lg:overflow-hidden lg:px-5">
@@ -490,7 +528,8 @@ export default function Home() {
         <header className="mb-2 flex items-center justify-between rounded-[20px] border border-white/10 bg-slate-900/65 px-4 py-2 shadow-xl shadow-black/10 backdrop-blur-sm sm:px-5">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-300">Studio</p>
-            <h1 className="mt-1 text-base font-semibold text-white sm:text-lg">{calendarSettings.appTitle}</h1>
+            <h1 className="mt-1 text-base font-semibold text-white sm:text-lg">Calendar Creator</h1>
+            <p className="mt-0.5 text-xs text-slate-400">{calendarSettings.appTitle}</p>
           </div>
           <div className="flex items-center gap-3">
             <p className="hidden text-sm text-slate-400 lg:block">Preview, branding e exportacao em um fluxo so.</p>
@@ -501,6 +540,12 @@ export default function Home() {
             >
               Assets
             </button>
+            <Link
+              href="/escudos"
+              className="hidden items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white transition hover:border-emerald-400/35 hover:bg-white/[0.08] sm:inline-flex"
+            >
+              Biblioteca de Escudos
+            </Link>
             <button
               type="button"
               onClick={() => setIsSettingsOpen(true)}
@@ -515,6 +560,15 @@ export default function Home() {
           </div>
         </header>
 
+        {shouldShowInitialLoader ? (
+          <div className="grid min-h-[calc(100vh-90px)] place-items-center rounded-[24px] border border-white/10 bg-slate-900/70 p-6 text-center shadow-2xl shadow-black/20">
+            <div>
+              <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-emerald-300/25 border-t-emerald-300" />
+              <p className="mt-4 text-sm font-semibold text-white">Carregando calendário salvo...</p>
+              <p className="mt-2 text-sm text-slate-400">Preparando partidas, escudos e configurações visuais.</p>
+            </div>
+          </div>
+        ) : (
         <div className="grid items-start gap-3 lg:h-[calc(100vh-74px)] lg:grid-cols-[minmax(340px,380px)_minmax(0,1fr)] lg:gap-3 xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)] xl:gap-4">
           <aside className="rounded-[24px] border border-white/10 bg-slate-900/90 p-4 shadow-2xl shadow-black/30 backdrop-blur-sm sm:rounded-[28px] sm:p-5 lg:h-full lg:overflow-y-auto">
             <div className="mb-4">
@@ -524,6 +578,7 @@ export default function Home() {
               </p>
               {isLoadingAssets ? <p className="mt-2 text-xs text-slate-400">Carregando branding e escudos salvos...</p> : null}
               {supabaseNotice ? <p className="mt-2 text-xs text-emerald-200">{supabaseNotice}</p> : null}
+              <p className={`mt-2 text-xs ${projectSaveStatusClass[projectSaveStatus]}`}>{projectSaveStatusLabel[projectSaveStatus]}</p>
             </div>
 
             <form className="space-y-2" onSubmit={handleGenerate}>
@@ -532,7 +587,10 @@ export default function Home() {
                   Mês
                   <input
                     value={month}
-                    onChange={(event) => setMonth(event.target.value)}
+                    onChange={(event) => {
+                      setMonth(event.target.value);
+                      markProjectUnsaved();
+                    }}
                     placeholder="ABRIL"
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/90 px-4 py-3 text-white placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/20"
                   />
@@ -542,7 +600,10 @@ export default function Home() {
                   Ano
                   <input
                     value={year}
-                    onChange={(event) => setYear(event.target.value)}
+                    onChange={(event) => {
+                      setYear(event.target.value);
+                      markProjectUnsaved();
+                    }}
                     placeholder="2026"
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/90 px-4 py-3 text-white placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/20"
                   />
@@ -553,7 +614,10 @@ export default function Home() {
                 Partidas
                 <textarea
                   value={matchesText}
-                  onChange={(event) => setMatchesText(event.target.value)}
+                  onChange={(event) => {
+                    setMatchesText(event.target.value);
+                    markProjectUnsaved();
+                  }}
                   rows={8}
                   className="mt-2 h-[180px] w-full overflow-y-auto resize-y rounded-3xl border border-white/10 bg-slate-950/90 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/20 sm:h-[170px] lg:h-[220px]"
                 />
@@ -574,6 +638,12 @@ export default function Home() {
                 >
                   Branding e escudos
                 </button>
+                <Link
+                  href="/escudos"
+                  className="inline-flex w-full items-center justify-center rounded-3xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-semibold text-white transition hover:border-emerald-400/35 hover:bg-white/[0.08] sm:hidden"
+                >
+                  Biblioteca de Escudos
+                </Link>
                 <button
                   type="button"
                   onClick={handleSaveProject}
@@ -666,6 +736,7 @@ export default function Home() {
             </div>
           </div>
         </div>
+        )}
       </div>
 
       {isExpandedPreviewOpen ? (

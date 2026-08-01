@@ -13,20 +13,76 @@ create table if not exists public.calendar_team_assets (
   team_name text not null,
   team_slug text not null,
   logo_url text not null,
+  storage_path text,
   created_at timestamptz not null default timezone('utc', now())
 );
-
-create unique index if not exists calendar_team_assets_team_slug_key
-  on public.calendar_team_assets (team_slug);
 
 create table if not exists public.calendar_projects (
   id uuid primary key default gen_random_uuid(),
+  project_name text not null default 'Calendário sem nome',
   month text not null,
   year text not null,
   matches_text text not null,
+  matches jsonb not null default '[]'::jsonb,
+  calendar_format text not null default 'feedPortrait',
+  visual_settings jsonb not null default '{}'::jsonb,
   branding_id uuid references public.calendar_branding(id) on delete set null,
-  created_at timestamptz not null default timezone('utc', now())
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default now()
 );
+
+alter table public.calendar_team_assets
+  add column if not exists storage_path text;
+
+alter table public.calendar_projects
+  add column if not exists project_name text not null default 'Calendário sem nome',
+  add column if not exists matches jsonb not null default '[]'::jsonb,
+  add column if not exists calendar_format text not null default 'feedPortrait',
+  add column if not exists visual_settings jsonb not null default '{}'::jsonb,
+  add column if not exists updated_at timestamptz not null default now();
+
+do $$
+begin
+  if exists (
+    select 1
+    from public.calendar_team_assets
+    group by team_slug
+    having count(*) > 1
+  ) then
+    raise notice 'calendar_team_assets possui team_slug duplicado; o índice único não foi criado. Execute a consulta de diagnóstico antes de corrigir os dados.';
+  else
+    execute 'create unique index if not exists calendar_team_assets_team_slug_key on public.calendar_team_assets (team_slug)';
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'set_updated_at'
+  ) then
+    execute $function$
+      create function public.set_updated_at()
+      returns trigger
+      language plpgsql
+      as $body$
+      begin
+        new.updated_at = now();
+        return new;
+      end;
+      $body$
+    $function$;
+  end if;
+end $$;
+
+drop trigger if exists calendar_projects_set_updated_at on public.calendar_projects;
+create trigger calendar_projects_set_updated_at
+  before update on public.calendar_projects
+  for each row
+  execute function public.set_updated_at();
 
 alter table public.calendar_branding enable row level security;
 alter table public.calendar_team_assets enable row level security;
@@ -75,6 +131,13 @@ create policy "calendar_team_assets_update"
   to anon, authenticated
   using (true)
   with check (true);
+
+drop policy if exists "calendar_team_assets_delete" on public.calendar_team_assets;
+create policy "calendar_team_assets_delete"
+  on public.calendar_team_assets
+  for delete
+  to anon, authenticated
+  using (true);
 
 drop policy if exists "calendar_projects_select" on public.calendar_projects;
 create policy "calendar_projects_select"
@@ -132,3 +195,10 @@ create policy "calendar_assets_public_update"
   to anon, authenticated
   using (bucket_id = 'calendar-assets')
   with check (bucket_id = 'calendar-assets');
+
+drop policy if exists "calendar_assets_public_delete" on storage.objects;
+create policy "calendar_assets_public_delete"
+  on storage.objects
+  for delete
+  to anon, authenticated
+  using (bucket_id = 'calendar-assets');

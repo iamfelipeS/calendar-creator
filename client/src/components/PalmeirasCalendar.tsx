@@ -11,6 +11,7 @@ export interface MatchDay {
 
 export interface PalmeirasCalendarSettings {
   appTitle: string;
+  footerCalendarName: string;
   brandHandle: string;
   brandLogoUrl: string;
   logoScale: number;
@@ -228,6 +229,7 @@ const CALENDAR_MODE_LAYOUT = {
 
 export const defaultPalmeirasCalendarSettings: PalmeirasCalendarSettings = {
   appTitle: 'Calendário Palmeiras',
+  footerCalendarName: 'PALMEIRAS',
   brandHandle: '@meupalestra',
   brandLogoUrl: '',
   logoScale: 1,
@@ -269,6 +271,7 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
 ) {
   const {
     appTitle,
+    footerCalendarName,
     brandHandle,
     brandLogoUrl,
     logoScale,
@@ -309,6 +312,8 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
       ? 'text-[9px] font-light tracking-[0.14em] sm:text-[10px] md:text-xs md:tracking-[0.2em]'
       : 'text-[10px] font-light tracking-[0.18em] sm:text-xs md:text-sm md:tracking-[0.26em]';
   const footerSeasonClass = canvasFormat === 'square' ? 'mt-0.5 text-[8px] sm:text-[9px] md:text-[10px]' : 'mt-1 text-[9px] sm:text-[10px] md:text-xs';
+  const footerDisplayName = footerCalendarName.trim() || defaultPalmeirasCalendarSettings.footerCalendarName;
+  const footerDisplayYear = year.trim() || '2026';
 
   const isMatchDay = (day: number) => matches.some((m) => m.day === day);
   const getMatch = (day: number) => matches.find((m) => m.day === day);
@@ -616,10 +621,10 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
         {showFooter ? (
           <div className={footerClass} style={{ borderColor: toRgba(accentColor, 0.18) }}>
             <p className={footerTitleClass} style={{ fontFamily: "'Lato', sans-serif", color: toRgba(accentColor, 0.86) }}>
-              CALENDÁRIO OFICIAL • PALMEIRAS
+              CALENDÁRIO OFICIAL • {footerDisplayName.toUpperCase()}
             </p>
             <p className={footerSeasonClass} style={{ color: toRgba(accentColor, 0.64) }}>
-              Temporada 2026
+              Temporada {footerDisplayYear}
             </p>
           </div>
         ) : null}

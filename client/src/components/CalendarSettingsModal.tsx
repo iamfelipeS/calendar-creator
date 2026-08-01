@@ -245,17 +245,28 @@ export default function CalendarSettingsModal({
             <div className="space-y-4 lg:pr-2 lg:space-y-5">
               <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
               <p className="text-sm font-semibold text-white">Branding</p>
-              <p className="mt-1 text-xs text-slate-400">Ajustes simples para logo, handle e nome interno do app.</p>
+              <p className="mt-1 text-xs text-slate-400">Ajustes simples para logo, handle e título do calendário.</p>
 
               <div className="mt-4 space-y-4">
                 <label className="block">
-                  <span className="text-sm font-semibold text-white">Nome do app</span>
+                  <span className="text-sm font-semibold text-white">Título do calendário</span>
                   <input
                     type="text"
                     value={settings.appTitle}
                     onChange={(event) => onChange('appTitle', event.target.value)}
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400/40"
-                    placeholder="Calendário Palmeiras"
+                    placeholder="Palmeiras — Agosto 2026"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-sm font-semibold text-white">Nome no rodapé</span>
+                  <input
+                    type="text"
+                    value={settings.footerCalendarName}
+                    onChange={(event) => onChange('footerCalendarName', event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400/40"
+                    placeholder="PALMEIRAS"
                   />
                 </label>
 

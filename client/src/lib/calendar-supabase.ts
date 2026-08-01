@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import type { MatchDay, PalmeirasCalendarSettings } from '@/components/PalmeirasCalendar';
 
 export const CALENDAR_ASSET_BUCKET = 'calendar-assets';
 
@@ -15,17 +16,34 @@ export interface CalendarTeamAssetRecord {
   team_name: string;
   team_slug: string;
   logo_url: string;
+  storage_path: string | null;
   created_at: string;
 }
 
 export interface CalendarProjectRecord {
   id: string;
+  project_name: string;
   month: string;
   year: string;
-  matches_text: string;
+  matches_text: string | null;
+  matches: CalendarProjectMatchRecord[];
+  calendar_format: string;
+  visual_settings: Partial<PersistedCalendarVisualSettings> | null;
   branding_id: string | null;
   created_at: string;
+  updated_at: string;
 }
+
+export type CalendarProjectMatchRecord = Pick<MatchDay, 'day' | 'homeTeam' | 'awayTeam' | 'isUndefined'>;
+
+export interface CalendarProjectTeamSourceRecord {
+  matches: CalendarProjectMatchRecord[] | null;
+  matches_text: string | null;
+}
+
+export type PersistedCalendarVisualSettings = Omit<PalmeirasCalendarSettings, 'canvasFormat'>;
+
+export const calendarFormatValues: PalmeirasCalendarSettings['canvasFormat'][] = ['feedPortrait', 'square', 'story'];
 
 export const normalizeTeamSlug = (teamName: string) =>
   teamName
@@ -157,7 +175,18 @@ const uploadAsset = async (folder: 'branding' | 'teams', pathPrefix: string, fil
   }
 
   const { data } = supabase.storage.from(CALENDAR_ASSET_BUCKET).getPublicUrl(filePath);
-  return data.publicUrl;
+  return {
+    publicUrl: data.publicUrl,
+    storagePath: filePath,
+  };
+};
+
+const removeStoredAsset = async (storagePath: string) => {
+  const { error } = await supabase.storage.from(CALENDAR_ASSET_BUCKET).remove([storagePath]);
+
+  if (error) {
+    throw error;
+  }
 };
 
 export const fetchLatestBranding = async () => {
@@ -196,6 +225,37 @@ export const fetchTeamAssets = async () => {
   return bySlug;
 };
 
+export const fetchLatestCalendarProject = async () => {
+  const { data, error } = await supabase
+    .from('calendar_projects')
+    .select('*')
+    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return (data as CalendarProjectRecord | null) ?? null;
+};
+
+export const fetchCalendarProjectTeamSources = async () => {
+  const { data, error } = await supabase
+    .from('calendar_projects')
+    .select('matches,matches_text')
+    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(200);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as CalendarProjectTeamSourceRecord[];
+};
+
 export const saveBranding = async ({
   brandingId,
   pageName,
@@ -212,7 +272,8 @@ export const saveBranding = async ({
   let logoUrl = existingLogoUrl ?? null;
 
   if (logoFile) {
-    logoUrl = await uploadAsset('branding', 'page-logo', logoFile);
+    const uploadedAsset = await uploadAsset('branding', 'page-logo', logoFile);
+    logoUrl = uploadedAsset.publicUrl;
   }
 
   if (brandingId) {
@@ -246,27 +307,52 @@ export const saveBranding = async ({
 export const saveTeamAsset = async ({
   teamName,
   existingId,
+  existingStoragePath,
   logoFile,
 }: {
   teamName: string;
   existingId?: string;
+  existingStoragePath?: string | null;
   logoFile: File;
 }) => {
   const teamSlug = normalizeTeamSlug(teamName);
-  const logoUrl = await uploadAsset('teams', teamSlug.toLowerCase().replace(/\s+/g, '-'), logoFile);
+  const uploadedAsset = await uploadAsset('teams', teamSlug.toLowerCase().replace(/\s+/g, '-'), logoFile);
+  let previousStoragePath = existingStoragePath ?? null;
+
+  const cleanupUploadedAsset = async () => {
+    try {
+      await removeStoredAsset(uploadedAsset.storagePath);
+    } catch (cleanupError) {
+      console.warn('Nao foi possivel remover o escudo enviado apos falha no banco.', cleanupError);
+    }
+  };
+
+  const cleanupPreviousAsset = async () => {
+    if (!previousStoragePath || previousStoragePath === uploadedAsset.storagePath) {
+      return;
+    }
+
+    try {
+      await removeStoredAsset(previousStoragePath);
+    } catch (cleanupError) {
+      console.warn('Escudo novo salvo, mas nao foi possivel remover o arquivo antigo do Storage.', cleanupError);
+    }
+  };
 
   if (existingId) {
     const { data, error } = await supabase
       .from('calendar_team_assets')
-      .update({ team_name: teamName, team_slug: teamSlug, logo_url: logoUrl })
+      .update({ team_name: teamName, team_slug: teamSlug, logo_url: uploadedAsset.publicUrl, storage_path: uploadedAsset.storagePath })
       .eq('id', existingId)
       .select()
       .single();
 
     if (error) {
+      await cleanupUploadedAsset();
       throw error;
     }
 
+    await cleanupPreviousAsset();
     return data as CalendarTeamAssetRecord;
   }
 
@@ -278,56 +364,100 @@ export const saveTeamAsset = async ({
     .limit(1);
 
   const latestExisting = (existingRecord?.[0] as CalendarTeamAssetRecord | undefined) ?? null;
+  previousStoragePath = latestExisting?.storage_path ?? previousStoragePath;
 
   if (latestExisting) {
     const { data, error } = await supabase
       .from('calendar_team_assets')
-      .update({ team_name: teamName, team_slug: teamSlug, logo_url: logoUrl })
+      .update({ team_name: teamName, team_slug: teamSlug, logo_url: uploadedAsset.publicUrl, storage_path: uploadedAsset.storagePath })
       .eq('id', latestExisting.id)
       .select()
       .single();
 
     if (error) {
+      await cleanupUploadedAsset();
       throw error;
     }
 
+    await cleanupPreviousAsset();
     return data as CalendarTeamAssetRecord;
   }
 
   const { data, error } = await supabase
     .from('calendar_team_assets')
-    .insert({ team_name: teamName, team_slug: teamSlug, logo_url: logoUrl })
+    .insert({ team_name: teamName, team_slug: teamSlug, logo_url: uploadedAsset.publicUrl, storage_path: uploadedAsset.storagePath })
     .select()
     .single();
 
   if (error) {
+    await cleanupUploadedAsset();
     throw error;
   }
 
   return data as CalendarTeamAssetRecord;
 };
 
+export const removeTeamAsset = async ({
+  assetId,
+  storagePath,
+}: {
+  assetId: string;
+  storagePath?: string | null;
+}) => {
+  const { error } = await supabase.from('calendar_team_assets').delete().eq('id', assetId);
+
+  if (error) {
+    throw error;
+  }
+
+  if (!storagePath) {
+    return;
+  }
+
+  try {
+    await removeStoredAsset(storagePath);
+  } catch (cleanupError) {
+    console.warn('Registro removido, mas nao foi possivel remover o escudo do Storage.', cleanupError);
+  }
+};
+
 export const saveCalendarProject = async ({
+  projectId,
+  projectName,
   month,
   year,
   matchesText,
+  matches,
+  calendarFormat,
+  visualSettings,
   brandingId,
 }: {
+  projectId?: string | null;
+  projectName: string;
   month: string;
   year: string;
   matchesText: string;
+  matches: CalendarProjectMatchRecord[];
+  calendarFormat: PalmeirasCalendarSettings['canvasFormat'];
+  visualSettings: PersistedCalendarVisualSettings;
   brandingId?: string | null;
 }) => {
-  const { data, error } = await supabase
-    .from('calendar_projects')
-    .insert({
-      month,
-      year,
-      matches_text: matchesText,
-      branding_id: brandingId ?? null,
-    })
-    .select()
-    .single();
+  const payload = {
+    project_name: projectName.trim() || 'Calendário sem nome',
+    month,
+    year,
+    matches,
+    matches_text: matchesText,
+    calendar_format: calendarFormat,
+    visual_settings: visualSettings,
+    branding_id: brandingId ?? null,
+  };
+
+  const query = projectId
+    ? supabase.from('calendar_projects').update(payload).eq('id', projectId)
+    : supabase.from('calendar_projects').insert(payload);
+
+  const { data, error } = await query.select().single();
 
   if (error) {
     throw error;
