@@ -1,6 +1,9 @@
 import React, { useMemo, useState } from 'react';
+import { Link } from 'wouter';
+import TeamAssetCard, { type TeamAssetItem } from '@/components/TeamAssetCard';
 import type { CalendarBrandingRecord, CalendarTeamAssetRecord } from '@/lib/calendar-supabase';
 import { normalizeTeamSlug } from '@/lib/calendar-supabase';
+import { teamLogos } from '@/lib/calendar-team-logos';
 
 interface CalendarAssetsModalProps {
   isOpen: boolean;
@@ -46,6 +49,23 @@ export default function CalendarAssetsModal({
   }, [initialHandle, initialPageName, isOpen]);
 
   const orderedTeams = useMemo(() => [...teams].sort((left, right) => left.localeCompare(right, 'pt-BR')), [teams]);
+  const teamItems = useMemo<TeamAssetItem[]>(
+    () =>
+      orderedTeams.map((teamName) => {
+        const teamSlug = normalizeTeamSlug(teamName);
+        const asset = teamAssets[teamSlug];
+        const localLogo = teamLogos[teamSlug];
+
+        return {
+          teamName,
+          teamSlug,
+          asset,
+          logoUrl: asset?.logo_url || localLogo,
+          origin: asset?.logo_url ? 'custom' : 'placeholder',
+        };
+      }),
+    [orderedTeams, teamAssets],
+  );
   const logoPreviewUrl = logoFile ? URL.createObjectURL(logoFile) : initialLogoUrl;
 
   React.useEffect(() => {
@@ -89,19 +109,19 @@ export default function CalendarAssetsModal({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-white">Branding ativo</p>
-                  <p className="mt-1 text-xs text-slate-400">Nome da página, handle e logo principal usados no calendário.</p>
+                  <p className="mt-1 text-xs text-slate-400">Título do calendário, handle e logo principal usados na arte.</p>
                 </div>
                 {brandingRecord ? <span className="text-xs text-emerald-200">salvo</span> : null}
               </div>
 
               <div className="mt-4 space-y-4">
                 <label className="block">
-                  <span className="text-sm font-medium text-slate-200">Nome da página</span>
+                  <span className="text-sm font-medium text-slate-200">Título do calendário</span>
                   <input
                     value={pageName}
                     onChange={(event) => setPageName(event.target.value)}
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/90 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-400/40"
-                    placeholder="Calendário Palmeiras"
+                    placeholder="Palmeiras — Agosto 2026"
                   />
                 </label>
 
@@ -153,58 +173,34 @@ export default function CalendarAssetsModal({
             </section>
 
             <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-              <div>
-                <p className="text-sm font-semibold text-white">Escudos dos times</p>
-                <p className="mt-1 text-xs text-slate-400">Envie manualmente os escudos dos times encontrados no calendário atual.</p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-white">Escudos dos times</p>
+                  <p className="mt-1 text-xs text-slate-400">Envie manualmente os escudos dos times encontrados no calendário atual.</p>
+                </div>
+                <Link
+                  href="/escudos"
+                  className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white transition hover:border-emerald-400/35 hover:bg-white/[0.08]"
+                >
+                  Ver todos os escudos
+                </Link>
               </div>
 
               <div className="mt-4 space-y-3">
-                {orderedTeams.length === 0 ? (
+                {teamItems.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-sm text-slate-400">
                     Gere ou cole partidas para listar os times aqui.
                   </div>
                 ) : (
-                  orderedTeams.map((teamName) => {
-                    const teamSlug = normalizeTeamSlug(teamName);
-                    const asset = teamAssets[teamSlug];
-
-                    return (
-                      <div key={teamName} className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-slate-950/45 p-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-950/90">
-                            {asset?.logo_url ? (
-                              <img src={asset.logo_url} alt={teamName} className="h-[84%] w-[84%] object-contain" />
-                            ) : (
-                              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">sem</span>
-                            )}
-                          </div>
-                          <div>
-                            <p className="text-sm font-semibold text-white">{teamName}</p>
-                            <p className="mt-1 text-xs text-slate-500">{asset?.logo_url ? 'Escudo salvo no Supabase' : 'Usando fallback local por enquanto'}</p>
-                          </div>
-                        </div>
-
-                        <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm font-semibold text-white transition hover:border-emerald-400/35 hover:bg-white/[0.08]">
-                          {savingTeamSlug === teamSlug ? 'Enviando...' : 'Enviar escudo'}
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            disabled={savingTeamSlug === teamSlug}
-                            onChange={async (event) => {
-                              const file = event.target.files?.[0];
-                              if (!file) {
-                                return;
-                              }
-
-                              await onSaveTeamAsset(teamName, file);
-                              event.currentTarget.value = '';
-                            }}
-                          />
-                        </label>
-                      </div>
-                    );
-                  })
+                  teamItems.map((item) => (
+                    <TeamAssetCard
+                      key={item.teamSlug}
+                      item={item}
+                      layout="compact"
+                      isUploading={savingTeamSlug === item.teamSlug}
+                      onUpload={onSaveTeamAsset}
+                    />
+                  ))
                 )}
               </div>
             </section>
