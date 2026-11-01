@@ -46,7 +46,7 @@ try {
   page.on('requestfailed', request => {
     const url = new URL(request.url());
     if (url.origin === site.origin || url.origin === new URL(process.env.VITE_SUPABASE_URL).origin) {
-      failures.push(`Request failed for ${url.pathname}`);
+      failures.push(`Request failed for ${url.pathname}: ${request.failure()?.errorText}`);
     }
   });
   const response = await page.goto(site.href, { waitUntil: 'networkidle0' });
@@ -63,6 +63,7 @@ try {
   await page.waitForFunction(() => location.hash === '#/escudos');
   assert.equal(new URL(page.url()).pathname, site.pathname, 'Navigation must preserve the Pages base.');
   await page.waitForFunction(() => document.querySelector('h1')?.textContent === 'Biblioteca de Escudos');
+  await page.waitForNetworkIdle();
   await page.reload({ waitUntil: 'networkidle0' });
   await page.waitForFunction(() => document.querySelector('h1')?.textContent === 'Biblioteca de Escudos');
   const search = 'input[placeholder="Digite nome ou slug"]';
