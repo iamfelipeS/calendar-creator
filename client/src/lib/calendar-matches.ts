@@ -22,7 +22,13 @@ export const parseMatchesInput = (input: string, persistedTeamLogos?: Record<str
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line): MatchDay | null => {
-      const match = line.match(/^(\d{1,2})\s*-\s*(.+?)\s+x\s+(.+)$/i);
+      const sections = line.split(/\s*\|\s*/);
+      if (sections.length > 2) {
+        return null;
+      }
+
+      const [fixtureText, kickoffText] = sections;
+      const match = fixtureText.match(/^(\d{1,2})\s*-\s*(.+?)\s+x\s+(.+)$/i);
       if (!match) {
         return null;
       }
@@ -37,8 +43,23 @@ export const parseMatchesInput = (input: string, persistedTeamLogos?: Record<str
         return null;
       }
 
+      let kickoff: MatchDay['kickoff'];
+      if (kickoffText !== undefined) {
+        if (/^(a\s+definir|tbd)$/i.test(kickoffText.trim())) {
+          kickoff = { status: 'to_be_defined' };
+        } else {
+          const timeMatch = kickoffText.trim().match(/^([01]?\d|2[0-3])(?::|h)([0-5]\d)$/i);
+          if (!timeMatch) {
+            return null;
+          }
+
+          kickoff = { status: 'confirmed', time: `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}` };
+        }
+      }
+
       return {
         day,
+        kickoff,
         homeTeam,
         awayTeam,
         homeLogoUrl: homeUndefined ? undefined : getTeamLogo(homeTeam, persistedTeamLogos) || undefined,
@@ -56,17 +77,24 @@ export const serializeMatchesText = (storedMatches: CalendarProjectMatchRecord[]
         return '';
       }
 
-      return `${String(match.day).padStart(2, '0')} - ${match.homeTeam} x ${match.awayTeam}`;
+      const kickoffSuffix = match.kickoff?.status === 'to_be_defined'
+        ? ' | A definir'
+        : match.kickoff?.status === 'confirmed'
+          ? ` | ${match.kickoff.time}`
+          : '';
+
+      return `${String(match.day).padStart(2, '0')} - ${match.homeTeam} x ${match.awayTeam}${kickoffSuffix}`;
     })
     .filter(Boolean)
     .join('\n');
 
 export const toCalendarProjectMatches = (currentMatches: MatchDay[]): CalendarProjectMatchRecord[] =>
-  currentMatches.map(({ day, homeTeam, awayTeam, isUndefined }) => ({
+  currentMatches.map(({ day, homeTeam, awayTeam, isUndefined, kickoff }) => ({
     day,
     homeTeam,
     awayTeam,
     isUndefined,
+    kickoff,
   }));
 
 export const extractTeamNamesFromMatchesText = (matchesText?: string | null) => {

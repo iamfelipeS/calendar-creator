@@ -621,6 +621,9 @@ export default function Home() {
                   rows={8}
                   className="mt-2 h-[180px] w-full overflow-y-auto resize-y rounded-3xl border border-white/10 bg-slate-950/90 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/20 sm:h-[170px] lg:h-[220px]"
                 />
+                <p className="mt-2 text-xs text-slate-400">
+                  Horário opcional: adicione | 19:30 ou | A definir ao fim da partida. O horário fica salvo, mas não aparece na arte.
+                </p>
               </label>
 
               <button
