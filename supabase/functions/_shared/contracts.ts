@@ -16,6 +16,9 @@ export interface SourceFixture {
   confirmed: boolean;
   conditional: boolean;
   note?: string;
+  kickoffTime?: string | null;
+  venue?: string;
+  phase?: string;
 }
 export interface ConsolidatedFixture {
   id: string;
@@ -29,11 +32,19 @@ export interface ConsolidatedFixture {
   note: string | null;
 }
 export interface SourceError { source: FixtureSource; message: string }
-export interface SourceResult { source: FixtureSource; fixtures: SourceFixture[]; warnings: string[] }
+export interface SourceResult {
+  source: FixtureSource; fixtures: SourceFixture[]; warnings: string[];
+  complete?: boolean;
+  discoveryCoverage?: 'calendar' | 'upcoming_only' | 'unknown';
+}
 export interface FixtureSearchResult extends FixtureQuery {
   fixtures: ConsolidatedFixture[];
   sourceErrors: SourceError[];
   sourceCounts: Partial<Record<FixtureSource, number>>;
   fetchedAt: string;
   timezone: 'America/Sao_Paulo';
+  discoverySource?: 'Palmeiras' | 'fallback';
+  discoveryFallback?: boolean;
+  discoveryCount?: number;
+  discoveryCoverage?: 'calendar' | 'upcoming_only' | 'unknown';
 }

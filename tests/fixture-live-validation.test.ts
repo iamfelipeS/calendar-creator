@@ -4,7 +4,7 @@ import type { Fetcher } from '../supabase/functions/_shared/sources';
 const query = { month: 9, year: 2026 };
 const event = { '@type': 'SportsEvent', name: 'Brasileirão 2026', startDate: '2026-09-06T16:00:00-03:00',
   homeTeam: { name: 'Botafogo' }, awayTeam: { name: 'Palmeiras' } };
-const html = `<script type="application/ld+json">${JSON.stringify(event)}</script>`;
+const html = `<section id="calendario-completo"><h2>CALENDÁRIO COMPLETO</h2><script type="application/ld+json">${JSON.stringify(event)}</script></section>`;
 const fetcher: Fetcher = async input => {
   const url = new URL(input);
   if (url.hostname === 'www.cbf.com.br') return new Response(JSON.stringify({ jogos: url.pathname.endsWith('/06') ? {
@@ -20,13 +20,13 @@ const fetcher: Fetcher = async input => {
   throw new Error('Unexpected test URL');
 };
 describe('live validator, with injected synthetic responses only', () => {
-  it('runs production adapters, audits each CBF day/ESPN league and tolerates missing CONMEBOL', async () => {
+  it('runs production adapters, audits punctual CBF/ESPN verification after discovery and tolerates missing CONMEBOL', async () => {
     const report = await validateMonth(query, fetcher);
     expect(report.criticalErrors).toEqual([]);
-    expect(report.sources.find(s => s.source === 'CBF')).toMatchObject({ daysConsulted: 30, successfulDays: 30, extracted: 1, state: 'ok' });
+    expect(report.sources.find(s => s.source === 'CBF')).toMatchObject({ daysConsulted: 1, successfulDays: 1, extracted: 1, state: 'ok' });
     const espn = report.sources.find(s => s.source === 'ESPN')!;
-    expect(espn.requests.map(r => r.target).sort()).toEqual(['bra.1', 'bra.copa_do_brasil', 'conmebol.libertadores']);
-    expect(espn.requests.find(r => r.target === 'bra.1')).toMatchObject({ httpStatus: 200, events: 1, extracted: 1 });
+    expect(espn.requests.map(r => r.target).sort()).toEqual(['bra.1 20260906']);
+    expect(espn.requests.find(r => r.target === 'bra.1 20260906')).toMatchObject({ httpStatus: 200, events: 1, extracted: 1 });
     expect(report.sources.find(s => s.source === 'Palmeiras')?.requests[0]).toMatchObject({ jsonLdFound: true, compatibleJsonLd: 1, usedHtmlFallback: false });
     expect(report.sources.find(s => s.source === 'CONMEBOL')).toMatchObject({ state: 'not_configured', requests: [] });
     expect(report.warnings).toContain('CONMEBOL: integração oficial ainda não configurada');
@@ -67,8 +67,9 @@ describe('live validator, with injected synthetic responses only', () => {
   });
   it('queries configured CONMEBOL only through its existing official-host restriction and never logs its URL/query', async () => {
     const configured = 'https://gol.conmebol.com/fixtures?token=should-not-appear';
-    const report = await validateMonth(query, (url, init) => url === configured ? Promise.resolve(new Response(
-      `<script type="application/ld+json">${JSON.stringify({ ...event, name: 'CONMEBOL Libertadores', homeTeam: { name: 'Palmeiras' }, awayTeam: { name: 'LDU' } })}</script>`)) : fetcher(url, init), configured);
+    const libertadores = `<script type="application/ld+json">${JSON.stringify({ ...event, name: 'CONMEBOL Libertadores', homeTeam: { name: 'Palmeiras' }, awayTeam: { name: 'LDU' } })}</script>`;
+    const report = await validateMonth(query, (url, init) => url === configured ? Promise.resolve(new Response(libertadores))
+      : url.includes('www.palmeiras.com.br') ? Promise.resolve(new Response(html + libertadores)) : fetcher(url, init), configured);
     expect(report.sources.find(s => s.source === 'CONMEBOL')?.state).toBe('ok');
     const serialized = JSON.stringify(report);
     expect(serialized).not.toContain('should-not-appear'); expect(serialized).not.toContain('?token');

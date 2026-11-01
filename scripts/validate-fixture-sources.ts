@@ -1,3 +1,4 @@
+// The validator invokes the same discovery-first orchestration as the Edge Function.
 import { renderReport, validateAllSources, type ValidationReport } from './fixture-live-validation.ts';
 
 if (import.meta.main) {

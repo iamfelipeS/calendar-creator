@@ -1,128 +1,167 @@
-# Busca e revisão de jogos do Palmeiras — v1 parcial
+# Busca de jogos do Palmeiras — discovery + verification
 
-## Estado desta entrega
+## Estratégia atual
 
-A implementação entrega o motor de busca, normalização, conciliação e revisão humana. Não deve ser apresentada como pesquisa completa das quatro fontes: a integração CONMEBOL continua pendente de um endpoint oficial validado, e os adapters CBF/Palmeiras/ESPN precisam de teste ao vivo a partir do Supabase. Os testes automatizados de parser usam respostas sintéticas e não comprovam cobertura real.
+A implementação deixou de iniciar com varreduras mensais independentes por fonte. O fluxo normal agora é:
 
-Não há cron, autenticação, publicação automática, gravação no banco pela função ou alteração de RLS. Nenhum jogo do gabarito foi colocado na lógica de produção. A busca não grava calendários; só o botão existente “Salvar calendário” persiste a importação.
+```text
+Calendário oficial Palmeiras (discovery)
+  → jogos do mês, sem confirmação absoluta
+  → CBF confirma confrontos de Brasileirão/Copa do Brasil
+  → CONMEBOL confirma confrontos de Libertadores, se configurada
+  → ESPN confere a data/confronto, sempre como fonte secundária
+  → reconcileFixtures()
+  → revisão humana e importação sem salvar automaticamente
+```
 
-## Arquitetura e fontes
+O PR #1 continua em draft. Nesta etapa não houve merge, deploy, consulta real pelo Actions, alteração de frontend, RLS, autenticação ou Cron. Nenhum jogo foi hardcoded em produção.
 
-`supabase/functions/sync-palmeiras-fixtures` expõe POST `{ "month": 11, "year": 2026 }`. Retorna `fixtures`, `sourceErrors`, `sourceCounts`, período, `fetchedAt` e fuso `America/Sao_Paulo`. Respostas parciais também usam HTTP 200; zero resultados com erros não significa ausência de partidas. O frontend chama exclusivamente a Edge Function.
+O usuário informou validações reais via Supabase: CBF diário respondeu 200 com `jogos → campeonato → categoria → partidas`; ESPN respondeu 200 com data única e 400 com intervalo mensal, inclusive com `limit=1000`. Essas informações orientaram a correção. Não são novas execuções feitas neste ambiente, nem capturas brutas usadas nos testes.
 
-Responsabilidades em `supabase/functions/_shared`:
+## Responsabilidades
 
-- `contracts.ts`: contrato compartilhado com frontend.
-- `sources.ts`: requisição e parser separado para cada fonte.
-- `normalize.ts`: nomes canônicos, competições e datas locais.
-- `reconcile.ts`: agrupamento e regras de autoridade.
-- `sync.ts`: execução independente com `Promise.allSettled`, contagens, erros sanitizados e logs.
+| Arquivo | Responsabilidade |
+| --- | --- |
+| `supabase/functions/_shared/palmeiras-calendar.ts` | Discovery semântico de calendário e contexto de temporada; não confirma jogos |
+| `structured-events.ts` | Parser JSON-LD compartilhado, extraído sem mudar as regras |
+| `sources.ts` | Fetch, parsers CBF/ESPN, discovery Palmeiras e adapters de fallback |
+| `verification.ts` | Verificação pontual por confronto, cache por data/competição e janela de ±3 dias |
+| `sync.ts` | Discovery primeiro, autoridades em paralelo, ESPN depois e fallback explícito |
+| `normalize.ts` / `reconcile.ts` | Normalização e regras de autoridade/confiança já existentes |
+| `contracts.ts` | Contratos usados pela função e pelo frontend |
 
-| Fonte | Estratégia | Limitação/estado |
-| --- | --- | --- |
-| CBF | JSON público diário `/api/cbf/calendario/jogos/YYYY/MM/DD`, com até seis requisições simultâneas; parser de `jogos → campeonato → categoria → jogos` | Endpoint identificado no cliente público `cbf_calendario` 0.4.1; acesso direto não validado neste ambiente. Só considera detalhado se houver horário. Dias indisponíveis geram aviso de cobertura parcial. |
-| ESPN | Scoreboard JSON de `bra.1`, `bra.copa_do_brasil` e `conmebol.libertadores`, com intervalo do mês e limite de 1000 | Fonte secundária; não vira autoridade mesmo se o status disser scheduled. Formato testado com amostras sintéticas; falta validação ao vivo. |
-| Palmeiras | Primeiro JSON-LD `SportsEvent`; fallback de cartões semânticos da página oficial `/dados-jogos/jogos/`, com competição/ano, data, horário e confronto | Sem endpoint JSON/XHR confirmado; o fallback HTML precisa de validação com a página real. A página pode não trazer histórico completo. Nunca usa notícias aleatórias como tabela de jogos. |
-| CONMEBOL | Parser isolado de JSON-LD `SportsEvent`, ativado apenas por `CONMEBOL_FIXTURES_URL` oficial e validada | **Pendente**: portal usa conteúdo dinâmico/Opta, sem endpoint acessível confirmado. Sem configuração, retorna aviso explícito. Não usa ESPN sob o nome CONMEBOL. Uma página sem SportsEvent não passa a contar como consulta bem-sucedida. |
+## Discovery Palmeiras
 
-Não há endpoint arbitrário fornecido pelo cliente. A URL opcional CONMEBOL fica no servidor, só aceita HTTPS em `conmebol.com` ou subdomínios, sem credenciais/porta; redirects são recusados. Cada request tem timeout de 5 s e resposta limitada a 3 MB. HTML bruto, stack traces e detalhes de erro do fetch não saem da função. Logs têm evento, período, fonte, contagens e falhas, sem payloads ou chaves.
+`discoverPalmeirasFixtures(query)` tenta, em ordem:
 
-Fontes consultadas na investigação:
-- CBF: https://www.cbf.com.br/futebol-brasileiro/tabelas/campeonato-brasileiro/serie-a/2026
-- Cliente público CBF (formato e rota, precisa ser revalidado na CBF): https://rubydoc.info/gems/cbf_calendario/CbfCalendario/Client
-- Palmeiras: https://www.palmeiras.com.br/dados-jogos/jogos/
-- Portal CONMEBOL: https://gol.conmebol.com/libertadores/es/fixture
-- ESPN: `https://site.api.espn.com/apis/site/v2/sports/soccer/{liga}/scoreboard`
+1. `https://www.palmeiras.com.br/ingressos/`
+2. `https://www.palmeiras.com.br/calendario/`
+3. `https://www.palmeiras.com.br/programacao-semanal/`
+4. `https://www.palmeiras.com.br/dados-jogos/jogos/`
 
-## Conciliação e confiança
+Para ao encontrar jogos relevantes em um bloco de calendário completo reconhecido (HTML ou JSON-LD nesse contexto). Escala para outras páginas quando não encontra o mês ou quando a cobertura é apenas próximas partidas/desconhecida. Caminho normal esperado: uma chamada. Não foi confirmado um endpoint JSON/XHR público estável dessas páginas; nenhum endpoint foi inventado.
 
-CBF é autoridade para Brasileirão e Copa do Brasil; CONMEBOL para Libertadores. Palmeiras é apoio e ESPN é secundária. Nomes conhecidos têm aliases (LDU, Athletico-PR, RB Bragantino etc.); nomes desconhecidos não são adivinhados.
+O parser aceita JSON-LD e HTML semântico. No HTML, constrói uma árvore sem executar scripts, localiza blocos de calendário/próximas partidas e links oficiais de jogo (`/jogo/?idjogo=...`), e mantém os limites do cartão ao associar confronto, competição e data. Notícias, navegação, rodapé e blocos relacionados são excluídos. Não procura confrontos/datas em texto arbitrário do site.
 
-Partidas são agrupadas por competição, mandante e visitante; rodadas/pernas conhecidas diferentes ficam separadas. Sem rodada comum, a tolerância entre fontes é sete dias e apenas um candidato compatível pode ser conciliado. Partidas repetidas na mesma fonte ficam separadas. Adiamentos maiores/identidade ambígua podem aparecer como linhas distintas: revisar manualmente. Comparações próximas à fronteira de mês dependem da cobertura recebida das fontes; não há busca ampliada para meses vizinhos nesta versão.
+Extrai, quando disponíveis: data, mandante, visitante, competição, horário, rodada/fase e estádio. Datas DD/MM usam somente um ano explícito no cartão ou contexto inequívoco de temporada; não recebem automaticamente o ano solicitado. Cartões sem ano verificável são ignorados com aviso, para não transformar próximas partidas atuais em suposto histórico.
 
-- Datas diferentes nas fontes agrupadas: `conflict`, confiança `low`. Exibe a data da autoridade quando disponível, sem ocultar alternativas e sem marcar por padrão.
-- Participação explicitamente dependente de classificação: `conditional`, confiança `low`, desmarcada.
-- Autoridade da competição com data detalhada e sem divergência: `confirmed`, confiança `high`, marcada.
-- Sem confirmação oficial detalhada: `base_date`, marcada com alerta; confiança `medium` se Palmeiras e ESPN concordarem, `low` com fonte única.
+`A DEFINIR` no **horário** produz `kickoffTime: null` e nota de data-base. Isso não transforma o jogo em condicional. Participante “a definir/vencedor/classificado” continua sendo condicional.
 
-Possíveis mata-matas só são incluídos quando existe evidência de um participante condicional ligado ao Palmeiras na fonte. A função não inventa jogos de semifinal/final a partir de um calendário genérico. O preenchimento de brackets futuros ainda depende da fonte oficial; cobertura condicional não é completa enquanto CONMEBOL estiver pendente.
+`discoveryCoverage` distingue `calendar`, `upcoming_only` e `unknown`. Próximas partidas não são tratadas como calendário mensal completo. Dados estruturados com cobertura desconhecida recebem aviso e ativam fallback se nenhuma página confirmar o contexto de calendário completo; não comprovam histórico completo.
 
-Datas ISO com timezone são convertidas para Brasília. Datas sem horário ficam como data civil; timestamps sem timezone são rejeitados. Um conflito com data prioritária fora do mês é exibido, mas não pode ser importado nesse mês.
+Limitação ainda real: os testes de HTML são representações sintéticas dos campos observados pelo usuário, não uma captura validada do DOM atual. Seletores/estrutura precisam de conferência no próximo teste real. JSON-LD também permanece suportado.
 
-## Interface e importação
+## Verification
 
-Botão “Buscar jogos automaticamente” na home abre modal acessível com mês/ano inicialmente iguais ao calendário. Cada linha mostra confronto, competição, status, confiança, todas as datas/fontes e nota. Condicionais e conflitos vêm desmarcados. Erros parciais e ausência de dados ficam visíveis.
+### CBF
 
-“Importar selecionados” pede substituir/adicionar/cancelar se houver texto atual. Adicionar só é permitido no mesmo mês/ano; preserva linhas manuais e evita duplicatas por data + mandante + visitante usando `normalizeTeamSlug()`. A importação procura o nome associado aos escudos existentes, inclusive aliases conhecidos, e atualiza lista, preview e estado “Alteracoes nao salvas”. Substituir por outro período atualiza também mês e ano. Nenhum POST/PATCH de calendário é feito pela importação.
+- Apenas jogos descobertos de Brasileirão/Copa do Brasil no caminho normal.
+- `verifyWithCBF()` consulta `/api/cbf/calendario/jogos/YYYY/MM/DD` na data conhecida.
+- Filtra o confronto por competição, nomes canônicos, mandante/visitante e rodada/perna quando conhecidas.
+- Se a resposta é válida, mas o confronto não foi encontrado, tenta -1/+1, -2/+2 e -3/+3 dias; para na primeira localização. Pode atravessar mês/ano.
+- Se a data conhecida falha por rede/HTTP, registra a falha sem multiplicá-la em uma varredura de datas vizinhas.
+- Cache por dia dentro da verificação: confrontos diferentes na mesma data reutilizam a consulta CBF.
+- Horário oficial detalhado permite `confirmed/high` se não houver divergência. Sem horário, permanece data-base.
 
-## Executar verificações
+### ESPN
+
+A estratégia de intervalo mensal foi **removida**, inclusive do fallback. Toda requisição usa:
+
+```text
+/apis/site/v2/sports/soccer/{liga}/scoreboard?dates=YYYYMMDD
+```
+
+Não há `dates=início-fim` nem `limit=1000`.
+
+`verifyWithESPN()` consulta somente a liga do confronto descoberto, primeiro na data encontrada pela autoridade quando disponível, ou na data Palmeiras. Se necessário, usa a mesma janela diária de ±3 dias. Reutiliza consulta por liga+data. Nunca promove ESPN para autoridade.
+
+### CONMEBOL
+
+`verifyWithConmebol()` só faz request quando o discovery encontra Libertadores. Sem URL oficial configurada, retorna erro parcial sanitizado; o jogo pode permanecer `base_date/medium` por acordo Palmeiras+ESPN, mas não ganha confirmação CONMEBOL.
+
+Com `CONMEBOL_FIXTURES_URL`, faz uma consulta oficial estruturada e filtra confrontos relevantes. Continua pendente identificar/validar um endpoint oficial confiável; não foi introduzido endpoint especulativo. URL restrita a HTTPS em `conmebol.com`/subdomínios, sem credenciais/porta, sem seguir redirects.
+
+## Conciliação preservada
+
+- CBF é autoridade em Brasileirão/Copa do Brasil; CONMEBOL em Libertadores.
+- Autoridade detalhada + datas concordantes: `confirmed/high`.
+- Palmeiras + ESPN concordantes, sem autoridade detalhada: `base_date/medium`.
+- Fonte única: `base_date/low`.
+- Datas diferentes: `conflict/low`, preservando datas por fonte. A data exibida prioriza a autoridade, mas o conflito não é ocultado.
+- Jogo dependente de classificação: `conditional/low`, desmarcado.
+
+A conciliação mantém tolerância máxima de sete dias para observações sem rodada comum; a **busca pontual** usa janela menor de três dias. Não confundir tolerância de associação com número de dias consultados.
+
+O resultado final considera apenas grupos com alguma observação no mês solicitado. Um conflito cuja data prioritária caia fora dele é preservado para revisão; o importador já impede inseri-lo silenciosamente no mês errado.
+
+## Fallback — somente discovery falho, vazio, restrito a próximas partidas ou sem cobertura inequívoca
+
+Retorno explícito:
+
+```json
+{
+  "discoverySource": "fallback",
+  "discoveryFallback": true,
+  "discoveryCount": 0,
+  "discoveryCoverage": "unknown"
+}
+```
+
+Sem fallback, `discoverySource` é `Palmeiras` e `discoveryFallback` é `false`. Esses metadados complementam `sourceErrors`/contagens sem alterar o fluxo de revisão do frontend.
+
+No fallback:
+
+1. CBF consulta os dias do mês, como descoberta excepcional, e CONMEBOL é tentada quando configurada.
+2. ESPN verifica os confrontos recuperados, sem consultar novamente competições que entrarão no fallback diário.
+3. Só as competições sem cobertura mensal oficial completa recebem descoberta ESPN por datas únicas: se CBF cobriu todos os dias, não se faz ESPN mensal nas duas competições domésticas; Libertadores continua necessitando fallback se CONMEBOL não cobrir o período.
+4. Se todas as autoridades falharem, a descoberta diária ESPN pode consultar as três ligas. Essa é uma exceção explícita, não o caminho normal. Histórico ausente no Palmeiras usa esse mesmo caminho, com cobertura e falhas visíveis.
+
+Zero resultados não comprova ausência de jogos. Cada falha permanece isolada; `sourceErrors` informa discovery incompleto e cobertura parcial.
+
+## Custo e concorrência
+
+Sem alteração de datas, para N jogos:
+
+```text
+P + D + E + C
+P: normalmente 1 página Palmeiras (máximo 4 na escalada)
+D: datas distintas CBF dos jogos domésticos
+E: pares distintos liga/data ESPN dos jogos encontrados
+C: 0 ou 1 página CONMEBOL, apenas se houver Libertadores
+```
+
+Exemplo genérico, sem dados reais hardcoded: seis jogos domésticos em seis datas → aproximadamente **13 requests**, em vez de varrer mês × fontes. Cada confronto não encontrado pode acrescentar até seis consultas diárias por verificador, reduzidas pelos caches e interrupção ao encontrar o jogo. Uma falha de rede na data conhecida não aciona essa ampliação.
+
+Pools de até quatro tarefas em CBF/ESPN. CBF e uma chamada CONMEBOL podem coexistir; ESPN roda depois das autoridades. Pico esperado até cinco requests externos concorrentes, sem fanout mensal por fonte no fluxo normal.
+
+Fallback pode custar mais: até 31 CBF + consultas ESPN pontuais e/ou até 31 por competição sem cobertura. No caso extremo de todas as autoridades falharem, pode chegar a 93 consultas ESPN em um mês de 31 dias. Esse custo/latência é uma limitação do fallback diário explicitamente documentada; não é apresentado como caminho de poucos requests. A próxima validação real deve medir esse caso antes de publicar a função.
+
+Timeout de 5 s por request e resposta limitada a 3 MB permanecem. Não há cache persistente, nova tabela, cron ou secret privilegiado.
+
+## Validador e testes
+
+O workflow manual continua somente no PR. Não foi copiado para `main` nem executado nesta etapa.
+
+`scripts/fixture-live-validation.ts` usa `makeLoaders()` e `syncFixtures()` reais: não mantém uma orquestração mensal paralela. Relata discovery, fallback, cobertura, total de requests, datas, contagens e incompatibilidades. A camada de observação reconhece calendário vazio com estrutura válida sem inventar jogos e distingue verificador não aplicável de falha.
 
 ```sh
-pnpm install --frozen-lockfile
 pnpm run check
 pnpm run test:fixtures
 pnpm run build:client
-# Deno 2 instalado:
-deno check --config supabase/functions/deno.json supabase/functions/sync-palmeiras-fixtures/index.ts
-# Teste de integração da UI com backend simulado, sem gravações reais:
-PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium node tests/fixtures-ui.mjs
+deno check scripts/validate-fixture-sources.ts supabase/functions/sync-palmeiras-fixtures/index.ts
 ```
 
-O workflow `Check fixture search` executa unitários e `deno check`. O smoke publicado existente continua validando home, calendário salvo, escudos, imagens, navegação, refresh e console; não depende de a nova Edge Function já estar implantada.
+Os 32 casos anteriores foram preservados; expectativas de contagem/ordem e a amostra CONMEBOL foram atualizadas para discovery-first. Há 16 novos casos em `tests/discovery-verification.test.ts`, incluindo HTML sem JSON-LD, horário a definir, confirmação, acordo secundário, conflito, fallback vazio/HTTP, histórico, data única ESPN, cache, concorrência e virada de mês. São 48 testes automatizados, com respostas injetadas — não consultas reais.
 
-## Deploy no projeto existente
+## Deploy futuro (não executado nesta etapa)
 
-Projeto: `pltfxvrmxonlaaykvfxv`. O ambiente desta entrega só tem URL e chave pública, sem `SUPABASE_ACCESS_TOKEN`/sessão administrativa ou ferramenta de deploy Supabase. A função **não foi implantada**. Não criar outro projeto.
-
-Com CLI Supabase instalado e credencial administrativa no terminal de quem já administra o projeto:
+Projeto existente: `pltfxvrmxonlaaykvfxv`.
 
 ```sh
 supabase login
 supabase functions deploy sync-palmeiras-fixtures --project-ref pltfxvrmxonlaaykvfxv --no-verify-jwt
 ```
 
-Não há secret adicional obrigatório para a busca atual; ela só lê fontes públicas e não precisa de `service_role`. O deploy necessita autenticação administrativa na CLI, que não deve ser versionada nem enviada ao frontend.
+Nenhuma `service_role` é necessária. A função só lê fontes públicas. CORS, ausência de autenticação nesta versão e políticas existentes permanecem como no PR. `CONMEBOL_FIXTURES_URL` é opcional e só deve ser configurada após validação da fonte oficial.
 
-**Somente depois de validar uma página oficial que realmente exponha JSON-LD de partidas**, configurar opcionalmente:
-
-```sh
-supabase secrets set CONMEBOL_FIXTURES_URL='URL_HTTPS_OFICIAL_VALIDADA' --project-ref pltfxvrmxonlaaykvfxv
-```
-
-Não configurar uma URL por tentativa só para eliminar o aviso. O parser não suporta automaticamente qualquer formato de Opta/Drupal.
-
-Para desenvolvimento local (Docker/Supabase local disponíveis):
-
-```sh
-supabase start
-supabase functions serve sync-palmeiras-fixtures --no-verify-jwt
-```
-
-Apontar as variáveis Vite para o Supabase local em `.env.local`, ignorado pelo Git, usando URL/chave pública locais. Não usar a chave do projeto remoto contra a instância local.
-
-CORS aceita `https://iamfelipes.github.io` (origem não contém `/calendar-creator/`) e localhost/127.0.0.1/IPv6 local com portas de desenvolvimento. `verify_jwt=false` é intencional: esta versão sem login é um endpoint público de leitura, sem operação privilegiada. CORS não é controle de autenticação.
-
-## Validação real de setembro, outubro e novembro
-
-Após deploy, chamar pelo painel nos meses 9, 10 e 11 de 2026 ou usar terminal, com as variáveis públicas do projeto já configuradas:
-
-```sh
-for month in 9 10 11; do
-  curl --fail-with-body "$VITE_SUPABASE_URL/functions/v1/sync-palmeiras-fixtures" \
-    -H "apikey: $VITE_SUPABASE_PUBLISHABLE_KEY" \
-    -H 'Origin: https://iamfelipes.github.io' \
-    -H 'Content-Type: application/json' \
-    --data "{\"year\":2026,\"month\":$month}"
-done
-```
-
-Não use `curl -v` em logs compartilhados, nem publique as configurações locais. Compare `sources`, datas e erros, sem tomar o gabarito como fonte oficial. As listas fornecidas para setembro/outubro aparecem **apenas em testes de formato de importação**, explicitamente rotulados como sintéticos; os testes não simulam aprovação histórica.
-
-Resultado desta entrega:
-- Setembro: formato do gabarito testado (6 jogos); consulta histórica real **pendente**.
-- Outubro: formato do gabarito testado (7 jogos); consulta histórica real **pendente**.
-- Novembro: regras/seleção/importação testadas com amostras sintéticas; busca real **pendente**.
-- Acesso direto às fontes não está liberado na política de rede deste ambiente. A pesquisa web encontrou páginas, mas não fornece prova de execução dos parsers.
-- Critério para concluir a validação real: CBF retorna jogos detalhados, ESPN e Palmeiras são comparadas, falhas de fonte são identificadas, divergências são revisadas e CONMEBOL é integrada com dados oficiais verificáveis. Até lá a busca deve ser tratada como prévia parcial.
-
-Deploy do frontend continua pelo workflow existente de Pages, quando esta implementação for integrada à branch `main`. Implantar a Edge Function e fazer a validação real antes de disponibilizar a funcionalidade como pronta para uso regular.
+Antes de retirar o draft: conferir o HTML real do discovery, executar o workflow de validação acordado e revisar os relatórios reais de setembro/outubro/novembro. Não corrigir resultados para coincidir com gabaritos e não realizar merge automaticamente.

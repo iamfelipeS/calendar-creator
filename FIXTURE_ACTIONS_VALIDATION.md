@@ -37,17 +37,17 @@ Essa pendência não falha a execução por si só. Com URL configurada, o mesmo
 
 ## O que é executado
 
-`scripts/validate-fixture-sources.ts` executa os meses 9, 10 e 11 de 2026. O módulo auxiliar `scripts/fixture-live-validation.ts` injeta um fetcher de observação nos adapters reais de `supabase/functions/_shared/sources.ts` e usa `syncFixtures()` para normalização/conciliação de produção.
+`scripts/validate-fixture-sources.ts` executa os meses 9, 10 e 11 de 2026. O módulo auxiliar `scripts/fixture-live-validation.ts` injeta fetchers de observação em `makeLoaders()` e executa `syncFixtures()` no fluxo **discovery Palmeiras → verificação pontual CBF/CONMEBOL → ESPN → conciliação**. Varredura diária mensal só ocorre em fallback explícito de discovery; ESPN nunca usa intervalo mensal.
 
-Não há parser alternativo nem adaptação silenciosa de payload. As checagens estruturais adicionais só detectam incompatibilidades que o parser atual poderia ignorar. As referências de setembro/outubro são usadas exclusivamente depois da consulta para comparação. Mês a mês, mantém-se o teto de seis chamadas concorrentes CBF.
+Não há parser alternativo nem adaptação silenciosa de payload. As checagens estruturais adicionais só detectam incompatibilidades que o parser atual poderia ignorar. As referências de setembro/outubro são usadas exclusivamente depois da consulta para comparação. Mês a mês, CBF/ESPN usam pools de até quatro tarefas; CBF e uma consulta CONMEBOL podem coexistir. O relatório inclui `discoverySource`, `discoveryFallback`, cobertura, quantidade descoberta e requests totais.
 
 O observador preserva a resposta original entregue ao adapter, respeita o timeout do request e limita a leitura auxiliar a 3 MB. Não imprime HTML, JSON bruto, cabeçalhos, erros de rede completos, tokens ou stack traces. O relatório projeta fixtures para campos públicos (data, confronto, competição, status, confidence e fontes/datas), omitindo URLs configuradas e payloads de origem.
 
 ## Relatório e resultado
 
-- CBF: HTTP por dia, dias consultados/sucesso, estrutura básica, fixtures extraídas e jogos do Palmeiras.
-- ESPN: três ligas, HTTP, quantidade de eventos, fixtures/datas, sempre fonte secundária.
-- Palmeiras: HTTP, presença de JSON-LD, eventos compatíveis, uso de fallback HTML e partidas no mês.
+- CBF: HTTP por data efetivamente consultada, dias consultados/sucesso, estrutura básica, fixtures extraídas e jogos do Palmeiras. No fluxo normal não varre todo o mês.
+- ESPN: somente ligas/datas necessárias no fluxo normal, HTTP, quantidade de eventos e fixtures/datas; sempre fonte secundária e sempre `dates=YYYYMMDD`. Competições adicionais podem ser descobertas no fallback diário.
+- Palmeiras: discovery em páginas oficiais, HTTP, JSON-LD/calendário semântico, cobertura e partidas no mês. Não é confirmação da competição.
 - CONMEBOL: skip explícito sem configuração; com configuração, resultado do adapter e JSON-LD.
 - Cada mês: observações por fonte, consolidação, divergências, warnings e sourceErrors.
 - Setembro/outubro: confronto encontrado, coincidência de data, datas efetivas por fonte, status e confiança; jogos adicionais também ficam visíveis.
@@ -69,8 +69,8 @@ pnpm run test:fixtures
 deno check scripts/validate-fixture-sources.ts
 ```
 
-`tests/fixture-live-validation.test.ts` testa o validador com respostas sintéticas injetadas; esses testes não são consultas reais. O workflow existente Check fixture search executa os testes junto da suíte anterior, sem acionar a consulta real.
+`tests/fixture-live-validation.test.ts` testa o validador com respostas sintéticas injetadas; esses testes não são consultas reais. A suíte atual tem 48 casos (32 preservados + 16 novos de discovery/verification). O workflow existente Check fixture search executa os testes junto da suíte anterior, sem acionar a consulta real.
 
 ## Estado desta entrega
 
-Workflow/script criados e testados, sem consulta real realizada nesta sessão. CBF, ESPN e Palmeiras continuam não validadas ao vivo; CONMEBOL continua pendente de URL oficial. O PR #1 deve permanecer em draft até o relatório de uma execução real ser analisado. Nenhum adapter foi corrigido com base em dados simulados.
+Workflow/script criados e testados, sem consulta real realizada nesta sessão. As validações CBF/data única ESPN reportadas pelo usuário orientaram esta arquitetura; ainda não foi executada aqui a validação integrada do novo fluxo. Palmeiras precisa de conferência com o DOM real; CONMEBOL continua pendente de URL oficial. O PR #1 deve permanecer em draft até o relatório de uma execução real ser analisado. Nenhum adapter foi corrigido com base em dados simulados.

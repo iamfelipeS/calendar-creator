@@ -114,7 +114,7 @@ describe('orchestration and HTTP', () => {
     const l = loaders(); l.CBF = async () => { throw new Error('secret-token-do-not-expose'); };
     l.ESPN = async () => ({ source: 'ESPN', fixtures: [row({ source: 'ESPN', confirmed: false })], warnings: [] });
     const log = vi.fn(); const result = await syncFixtures(query, l, log);
-    expect(result.fixtures).toHaveLength(1); expect(result.sourceErrors[0].source).toBe('CBF');
+    expect(result.fixtures).toHaveLength(1); expect(result.sourceErrors.some(e => e.source === 'CBF')).toBe(true);
     expect(JSON.stringify(result) + JSON.stringify(log.mock.calls)).not.toContain('secret-token');
   });
   it('checks CORS origin (not pathname), preflight, methods and invalid input', async () => {

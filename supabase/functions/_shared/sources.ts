@@ -1,10 +1,13 @@
+import { parsePalmeirasCalendar } from './palmeiras-calendar.ts';
+import { parseSportsEvents } from './structured-events.ts';
+export { parseSportsEvents } from './structured-events.ts';
 import type { FixtureQuery, FixtureSource, SourceFixture, SourceResult } from './contracts.ts';
 import { competitionFrom, localDate, normalizeFixtures, slug } from './normalize.ts';
 
 type Json = Record<string, any>;
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
-async function get(url: string, fetcher: Fetcher): Promise<string> {
+export async function get(url: string, fetcher: Fetcher): Promise<string> {
   const response = await fetcher(url, { signal: AbortSignal.timeout(5000), redirect: 'error',
     headers: { Accept: 'application/json, text/html;q=0.9', 'User-Agent': 'CalendarCreator/1.0 (fixture review)' } });
   if (!response.ok) throw new Error('Fonte indisponível');
@@ -52,16 +55,15 @@ export async function fetchCBFFixtures(query: FixtureQuery, fetcher: Fetcher = f
   const days = new Date(Date.UTC(query.year, query.month, 0)).getUTCDate();
   const dates = Array.from({ length: days }, (_, i) => `${query.year}-${String(query.month).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`);
   const fixtures: SourceFixture[] = []; let cursor = 0, failed = 0;
-  // At most six simultaneous daily requests; no unbounded month-wide fanout.
-  await Promise.all(Array.from({ length: 6 }, async () => {
+  // At most four simultaneous daily requests; no unbounded month-wide fanout.
+  await Promise.all(Array.from({ length: 4 }, async () => {
     while (cursor < dates.length) {
       const date = dates[cursor++];
-      const url = `https://www.cbf.com.br/api/cbf/calendario/jogos/${date.replaceAll('-', '/')}`;
-      try { fixtures.push(...parseCBF(JSON.parse(await get(url, fetcher)), date, url)); } catch { failed++; }
+      try { fixtures.push(...await fetchCBFDate(date, fetcher)); } catch { failed++; }
     }
   }));
   if (failed === days) throw new Error('Não foi possível consultar a CBF.');
-  return { source: 'CBF', fixtures, warnings: failed ? [`CBF: ${failed} de ${days} dias não puderam ser consultados; cobertura incompleta.`] : [] };
+  return { source: 'CBF', fixtures, complete: failed === 0, warnings: failed ? [`CBF: ${failed} de ${days} dias não puderam ser consultados; cobertura incompleta.`] : [] };
 }
 
 export function parseESPN(payload: Json, competition: SourceFixture['competition'], url: string): SourceFixture[] {
@@ -79,80 +81,64 @@ export function parseESPN(payload: Json, competition: SourceFixture['competition
   })));
 }
 
-export async function fetchSecondaryFixtures(query: FixtureQuery, fetcher: Fetcher = fetch): Promise<SourceResult> {
-  const start = `${query.year}${String(query.month).padStart(2, '0')}01`;
-  const end = `${query.year}${String(query.month).padStart(2, '0')}${new Date(Date.UTC(query.year, query.month, 0)).getUTCDate()}`;
-  const leagues = [{ id: 'bra.1', name: 'Brasileirão' }, { id: 'bra.copa_do_brasil', name: 'Copa do Brasil' },
-    { id: 'conmebol.libertadores', name: 'Libertadores' }] as const;
-  const results = await Promise.allSettled(leagues.map(async league => {
-    const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${league.id}/scoreboard?dates=${start}-${end}&limit=1000`;
-    return parseESPN(JSON.parse(await get(url, fetcher)), league.name, url);
-  }));
-  if (results.every(r => r.status === 'rejected')) throw new Error('Não foi possível consultar a ESPN.');
-  return { source: 'ESPN', fixtures: results.flatMap(r => r.status === 'fulfilled' ? r.value : []),
-    warnings: results.flatMap((r, i) => r.status === 'rejected' ? [`ESPN: consulta de ${leagues[i].name} indisponível.`] : []) };
+export const espnLeagues = { 'Brasileirão': 'bra.1', 'Copa do Brasil': 'bra.copa_do_brasil', 'Libertadores': 'conmebol.libertadores' } as const;
+export async function fetchCBFDate(date: string, fetcher: Fetcher = fetch): Promise<SourceFixture[]> {
+  const url = `https://www.cbf.com.br/api/cbf/calendario/jogos/${date.replaceAll('-', '/')}`;
+  return parseCBF(JSON.parse(await get(url, fetcher)), date, url);
 }
-
-const decode = (text: string) => text.replace(/&nbsp;|&#160;/g, ' ').replace(/&amp;/g, '&')
-  .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)));
-
-export function parseSportsEvents(html: string, source: FixtureSource, url: string): SourceFixture[] {
-  const rows: SourceFixture[] = [];
-  const visit = (node: any) => {
-    if (!node || typeof node !== 'object') return;
-    if (Array.isArray(node)) { node.forEach(visit); return; }
-    const types = Array.isArray(node['@type']) ? node['@type'] : [node['@type']];
-    if (types.includes('SportsEvent') || types.includes('Event')) {
-      const competition = competitionFrom(`${node.competition?.name || node.superEvent?.name || ''} ${node.name || ''}`);
-      const home = node.homeTeam?.name, away = node.awayTeam?.name;
-      if (competition && typeof home === 'string' && typeof away === 'string' && typeof node.startDate === 'string' &&
-        !/EventCancelled|EventPostponed/.test(node.eventStatus || '')) {
-        const conditional = /VENCEDOR|WINNER|A DEFINIR|TBD|SE AVANCAR/.test(slug(`${home} ${away} ${node.description || ''}`));
-        const detailed = /T\d{2}:\d{2}/.test(node.startDate) && /(Z|[+-]\d{2}:?\d{2})$/.test(node.startDate);
-        rows.push({ source, sourceId: String(node['@id'] || node.url || `${node.startDate}-${home}-${away}`), url,
-          date: node.startDate, homeTeam: home, awayTeam: away, competition,
-          confirmed: detailed && source === (competition === 'Libertadores' ? 'CONMEBOL' : 'CBF'), conditional });
-      }
+export async function fetchESPNDate(date: string, competition: SourceFixture['competition'], fetcher: Fetcher = fetch): Promise<SourceFixture[]> {
+  const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${espnLeagues[competition]}/scoreboard?dates=${date.replaceAll('-', '')}`;
+  return parseESPN(JSON.parse(await get(url, fetcher)), competition, url);
+}
+// Exceptional discovery fallback only. ESPN does not accept monthly date ranges.
+export async function fetchSecondaryFixtures(query: FixtureQuery, fetcher: Fetcher = fetch,
+  competitions: SourceFixture['competition'][] = ['Brasileirão', 'Copa do Brasil', 'Libertadores']): Promise<SourceResult> {
+  const days = new Date(Date.UTC(query.year, query.month, 0)).getUTCDate();
+  const jobs = competitions.flatMap(competition => Array.from({ length: days }, (_, i) => ({ competition,
+    date: `${query.year}-${String(query.month).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}` })));
+  const fixtures: SourceFixture[] = []; const failed = new Set<string>(); let success = 0, cursor = 0;
+  await Promise.all(Array.from({ length: 4 }, async () => {
+    while (cursor < jobs.length) {
+      const { date, competition } = jobs[cursor++];
+      try { fixtures.push(...await fetchESPNDate(date, competition, fetcher)); success++; }
+      catch { failed.add(competition); }
     }
-    Object.values(node).forEach(child => { if (child && typeof child === 'object') visit(child); });
-  };
-  for (const match of html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
-    try { visit(JSON.parse(match[1])); } catch { /* A broken unrelated script must not discard other events. */ }
-  }
-  return normalizeFixtures(rows);
+  }));
+  if (jobs.length && !success) throw new Error('Não foi possível consultar a ESPN.');
+  return { source: 'ESPN', fixtures: normalizeFixtures(fixtures), complete: !failed.size,
+    warnings: [...failed].map(competition => `ESPN: consulta de ${competition} indisponível em um ou mais dias.`) };
 }
 
 export function parsePalmeirasHTML(html: string, url: string): SourceFixture[] {
-  const structured = parseSportsEvents(html, 'Palmeiras', url);
-  if (structured.length) return structured;
-  // Semantic text fallback: competition/year | DD/MM/YYYY | time, then home X away.
-  // Never scan news prose for arbitrary team/date coincidences.
-  const text = decode(html.replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>/gi, '')
-    .replace(/<img\b[^>]*alt=["']([^"']*)["'][^>]*>/gi, ' $1 ').replace(/<[^>]+>/g, '\n'));
-  const lines = text.split('\n').map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
-  const rows: SourceFixture[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const header = lines.slice(i, i + 3).join(' ');
-    const match = header.match(/^(.+?\b20\d{2})\s*\|\s*(\d{2}\/\d{2}\/\d{4})\s*\|/);
-    if (!match) continue;
-    const competition = competitionFrom(match[1]); if (!competition) continue;
-    const window = lines.slice(i + 1, i + 16).join(' | ');
-    const teams = window.match(/(?:^|\|)\s*([^|]+?)\s+(?:X|x|×)\s+([^|]+?)(?:\||$)/) ||
-      window.match(/(?:^|\|)\s*([^|]+?)\s*\|\s*(?:X|x|×)\s*\|\s*([^|]+?)(?:\||$)/);
-    if (!teams) continue;
-    rows.push({ source: 'Palmeiras', sourceId: `${match[2]}-${teams[1]}-${teams[2]}`, url,
-      date: match[2], homeTeam: teams[1], awayTeam: teams[2], competition, confirmed: false,
-      conditional: /A DEFINIR|VENCEDOR|TBD/.test(slug(`${teams[1]} ${teams[2]}`)) });
+  return parsePalmeirasCalendar(html, url).fixtures;
+}
+export const palmeirasDiscoveryPages = [
+  'https://www.palmeiras.com.br/ingressos/',
+  'https://www.palmeiras.com.br/calendario/',
+  'https://www.palmeiras.com.br/programacao-semanal/',
+  'https://www.palmeiras.com.br/dados-jogos/jogos/',
+];
+export async function discoverPalmeirasFixtures(query: FixtureQuery, fetcher: Fetcher = fetch): Promise<SourceResult> {
+  const fixtures: SourceFixture[] = []; const warnings: string[] = []; let failed = 0;
+  let coverage: SourceResult['discoveryCoverage'] = 'unknown';
+  for (const url of palmeirasDiscoveryPages) {
+    try {
+      const page = parsePalmeirasCalendar(await get(url, fetcher), url, query);
+      fixtures.push(...page.fixtures); warnings.push(...page.warnings);
+      if (page.coverage === 'calendar') coverage = 'calendar';
+      else if (coverage === 'unknown') coverage = page.coverage;
+      if (page.fixtures.length && page.coverage === 'calendar') break;
+    } catch { failed++; }
   }
-  return normalizeFixtures(rows);
+  if (failed === palmeirasDiscoveryPages.length) throw new Error('Não foi possível consultar o calendário do Palmeiras.');
+  const unique = [...new Map(normalizeFixtures(fixtures).map(f => [`${f.date}|${slug(f.homeTeam)}|${slug(f.awayTeam)}|${f.competition}`, f])).values()];
+  if (!unique.length) warnings.push('Palmeiras: discovery vazio para o período; pode não haver histórico/cobertura. Ativar fallback, sem concluir ausência de jogos.');
+  if (unique.length && coverage === 'unknown') warnings.push('Palmeiras: jogos descobertos sem garantia de cobertura histórica completa; revisar o calendário oficial.');
+  if (coverage === 'upcoming_only') warnings.push('Palmeiras: apenas próximas partidas reconhecidas; discovery incompleto, ativar fallback.');
+  if (failed) warnings.push('Palmeiras: uma ou mais páginas de discovery indisponíveis.');
+  return { source: 'Palmeiras', fixtures: unique, warnings, discoveryCoverage: coverage };
 }
-
-export async function fetchPalmeirasFixtures(_query: FixtureQuery, fetcher: Fetcher = fetch): Promise<SourceResult> {
-  const url = 'https://www.palmeiras.com.br/dados-jogos/jogos/';
-  const fixtures = parsePalmeirasHTML(await get(url, fetcher), url);
-  if (!fixtures.length) throw new Error('Página do Palmeiras sem jogos estruturados reconhecidos.');
-  return { source: 'Palmeiras', fixtures, warnings: ['Palmeiras: a página pública pode não cobrir todo o histórico; ausência não confirma inexistência de jogo.'] };
-}
+export const fetchPalmeirasFixtures = discoverPalmeirasFixtures;
 
 export async function fetchConmebolFixtures(_query: FixtureQuery, fetcher: Fetcher = fetch, configuredUrl?: string): Promise<SourceResult> {
   if (!configuredUrl) throw new Error('CONMEBOL: endpoint oficial de fixtures ainda precisa ser validado e configurado.');

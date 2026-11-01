@@ -1,4 +1,6 @@
-# Validação real da busca — bloqueada pelo ambiente
+# Registro histórico — validação bloqueada antes de discovery-first
+
+> Este relatório descreve a rodada anterior. A arquitetura atual está em `FIXTURE_SEARCH.md`: discovery Palmeiras + verification. Posteriormente o usuário reportou HTTP 200/estrutura válida na CBF e na ESPN por data única, e HTTP 400 para intervalo mensal ESPN. As limitações/decisões de varredura abaixo são históricas, não a estratégia normal atual.
 
 ## Decisão
 
