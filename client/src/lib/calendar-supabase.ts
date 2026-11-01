@@ -45,14 +45,8 @@ export type PersistedCalendarVisualSettings = Omit<PalmeirasCalendarSettings, 'c
 
 export const calendarFormatValues: PalmeirasCalendarSettings['canvasFormat'][] = ['feedPortrait', 'square', 'story'];
 
-export const normalizeTeamSlug = (teamName: string) =>
-  teamName
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^A-Za-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toUpperCase();
+import { normalizeTeamSlug } from './team-names';
+export { normalizeTeamSlug } from './team-names';
 
 const sanitizeFileName = (fileName: string) =>
   fileName

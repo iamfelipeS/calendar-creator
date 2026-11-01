@@ -4,6 +4,9 @@ import { flushSync } from 'react-dom';
 import { Link } from 'wouter';
 import CalendarAssetsModal from '@/components/CalendarAssetsModal';
 import CalendarSettingsModal from '@/components/CalendarSettingsModal';
+import FixtureSearchModal from '@/components/FixtureSearchModal';
+import { calendarMonths, importFixturesText, monthNumber, type ImportMode } from '@/lib/fixture-import';
+import type { ConsolidatedFixture, FixtureQuery } from '../../../supabase/functions/_shared/contracts';
 import PalmeirasCalendar, {
   MatchDay,
   PalmeirasCalendarSettings,
@@ -130,6 +133,7 @@ export default function Home() {
   const [matches, setMatches] = useState<MatchDay[]>(() => parseMatchesInput(initialMatchesText));
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAssetsOpen, setIsAssetsOpen] = useState(false);
+  const [isFixtureSearchOpen, setIsFixtureSearchOpen] = useState(false);
   const [isExpandedPreviewOpen, setIsExpandedPreviewOpen] = useState(false);
   const [calendarSettings, setCalendarSettings] = useState<PalmeirasCalendarSettings>(defaultPalmeirasCalendarSettings);
   const [isExporting, setIsExporting] = useState(false);
@@ -213,6 +217,18 @@ export default function Home() {
   const handleGenerate = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setMatches(parseMatchesInput(matchesText, persistedTeamLogos));
+    markProjectUnsaved();
+  };
+
+  const handleImportFixtures = (fixtures: ConsolidatedFixture[], period: FixtureQuery, mode: ImportMode) => {
+    if (mode === 'append' && (monthNumber(month) !== period.month || Number(year) !== period.year)) {
+      throw new Error('Só é possível adicionar jogos ao mesmo mês e ano do calendário.');
+    }
+    const imported = importFixturesText(matchesText, fixtures, period, mode, Object.values(teamAssets).map(asset => asset.team_name));
+    setMatchesText(imported);
+    setMatches(parseMatchesInput(imported, persistedTeamLogos));
+    setMonth(calendarMonths[period.month - 1]);
+    setYear(String(period.year));
     markProjectUnsaved();
   };
 
@@ -581,6 +597,10 @@ export default function Home() {
               <p className={`mt-2 text-xs ${projectSaveStatusClass[projectSaveStatus]}`}>{projectSaveStatusLabel[projectSaveStatus]}</p>
             </div>
 
+            <button type="button" onClick={() => setIsFixtureSearchOpen(true)}
+              className="mb-3 w-full rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/20">
+              Buscar jogos automaticamente
+            </button>
             <form className="space-y-2" onSubmit={handleGenerate}>
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_132px]">
                 <label className="block text-sm font-medium text-slate-200">
@@ -802,6 +822,9 @@ export default function Home() {
           </div>
         </div>
       ) : null}
+
+      <FixtureSearchModal open={isFixtureSearchOpen} onClose={() => setIsFixtureSearchOpen(false)}
+        month={month} year={year} hasMatches={!!matchesText.trim()} onImport={handleImportFixtures} />
 
       <CalendarAssetsModal
         isOpen={isAssetsOpen}
