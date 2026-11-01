@@ -1,7 +1,12 @@
 import React, { forwardRef } from 'react';
 
+export type MatchKickoff =
+  | { status: 'confirmed'; time: string }
+  | { status: 'to_be_defined' };
+
 export interface MatchDay {
   day: number;
+  kickoff?: MatchKickoff;
   homeTeam?: string;
   awayTeam?: string;
   homeLogoUrl?: string;
