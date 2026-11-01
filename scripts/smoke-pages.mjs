@@ -34,6 +34,9 @@ try {
   await page.setViewport({ width: 1440, height: 1000 });
   const failures = [];
   page.on('pageerror', () => failures.push('Uncaught browser exception'));
+  page.on('console', message => {
+    if (message.type() === 'error') failures.push('Browser console error');
+  });
   page.on('response', response => {
     const url = new URL(response.url());
     if (response.status() >= 400 && (url.origin === site.origin || url.origin === new URL(process.env.VITE_SUPABASE_URL).origin)) {
