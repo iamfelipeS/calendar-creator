@@ -34,7 +34,7 @@ export interface CalendarProjectRecord {
   updated_at: string;
 }
 
-export type CalendarProjectMatchRecord = Pick<MatchDay, 'day' | 'homeTeam' | 'awayTeam' | 'isUndefined'>;
+export type CalendarProjectMatchRecord = Pick<MatchDay, 'day' | 'homeTeam' | 'awayTeam' | 'isUndefined' | 'kickoff'>;
 
 export interface CalendarProjectTeamSourceRecord {
   matches: CalendarProjectMatchRecord[] | null;
