@@ -19,8 +19,8 @@ jobs:
       contents: read
       pages: read
     env:
-      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL || secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
       VITE_BASE_PATH: /calendar-creator/
       PUPPETEER_SKIP_DOWNLOAD: "true"
     steps:
@@ -63,8 +63,8 @@ jobs:
     timeout-minutes: 10
     env:
       SMOKE_URL: ${{ needs.deploy.outputs.page_url }}
-      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL || secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
       PUPPETEER_SKIP_DOWNLOAD: "true"
     steps:
       - uses: actions/checkout@v4
