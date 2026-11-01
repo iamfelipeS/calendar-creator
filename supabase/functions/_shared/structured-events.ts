@@ -1,5 +1,5 @@
 import type { FixtureSource, SourceFixture } from './contracts.ts';
-import { competitionFrom, normalizeFixtures, slug } from './normalize.ts';
+import { competitionFrom, normalizeFixtures, timestampKickoffTime, slug } from './normalize.ts';
 
 export function parseSportsEvents(html: string, source: FixtureSource, url: string): SourceFixture[] {
   const rows: SourceFixture[] = [];
@@ -15,7 +15,7 @@ export function parseSportsEvents(html: string, source: FixtureSource, url: stri
         const conditional = /VENCEDOR|WINNER|A DEFINIR|TBD|SE AVANCAR/.test(slug(`${home} ${away} ${node.description || ''}`));
         const detailed = /T\d{2}:\d{2}/.test(node.startDate) && /(Z|[+-]\d{2}:?\d{2})$/.test(node.startDate);
         rows.push({ source, sourceId: String(node['@id'] || node.url || `${node.startDate}-${home}-${away}`), url,
-          date: node.startDate, homeTeam: home, awayTeam: away, competition,
+          date: node.startDate, kickoffTime: timestampKickoffTime(node.startDate), homeTeam: home, awayTeam: away, competition,
           confirmed: detailed && source === (competition === 'Libertadores' ? 'CONMEBOL' : 'CBF'), conditional });
       }
     }

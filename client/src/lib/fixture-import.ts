@@ -1,5 +1,5 @@
 import type { ConsolidatedFixture, FixtureQuery } from '../../../supabase/functions/_shared/contracts';
-import { canonicalTeam } from '../../../supabase/functions/_shared/normalize';
+import { canonicalTeam, normalizeKickoffTime } from '../../../supabase/functions/_shared/normalize';
 import { normalizeTeamSlug } from './team-names';
 
 export const calendarMonths = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO',
@@ -15,7 +15,7 @@ export function importFixturesText(current: string, fixtures: ConsolidatedFixtur
     `${period.year}-${period.month}-${day}|${normalizeTeamSlug(canonicalTeam(home))}|${normalizeTeamSlug(canonicalTeam(away))}`;
   const seen = new Set<string>();
   if (mode === 'append') for (const line of current.split('\n')) {
-    const m = line.trim().match(/^(\d{1,2})\s*-\s*(.+?)\s+x\s+(.+)$/i);
+    const m = line.trim().match(/^(\d{1,2})(?:\s+\d{2}:\d{2})?\s*-\s*(.+?)\s+x\s+(.+)$/i);
     if (m) seen.add(key(Number(m[1]), m[2], m[3]));
   }
   const prefix = `${period.year}-${String(period.month).padStart(2, '0')}-`;
@@ -26,7 +26,7 @@ export function importFixturesText(current: string, fixtures: ConsolidatedFixtur
     const id = key(day, home, away);
     if (seen.has(id)) return '';
     seen.add(id);
-    return `${String(day).padStart(2, '0')} - ${home} x ${away}`;
+    return `${String(day).padStart(2, '0')}${normalizeKickoffTime(f.kickoffTime) ? ` ${normalizeKickoffTime(f.kickoffTime)}` : ''} - ${home} x ${away}`;
   }).filter(Boolean).join('\n');
   return mode === 'append' ? [current.trimEnd(), added].filter(Boolean).join('\n') : added;
 }

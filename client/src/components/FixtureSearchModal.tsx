@@ -96,13 +96,13 @@ export default function FixtureSearchModal({ open, onClose, month, year, hasMatc
               <input type="checkbox" className="mt-1" checked={selected.has(fixture.id)} disabled={outside} onChange={e => {
                 setConfirmImport(false); setSelected(current => { const next = new Set(current); if (e.target.checked) next.add(fixture.id); else next.delete(fixture.id); return next; });
               }} />
-              <span><span className="font-semibold">{fixture.date.split('-').reverse().join('/')} · {fixture.homeTeam} x {fixture.awayTeam}</span>
+              <span><span className="font-semibold">{fixture.date.split('-').reverse().join('/')} · {fixture.kickoffTime || 'A definir'} · {fixture.homeTeam} x {fixture.awayTeam}</span>
                 <span className="mt-1 block text-sm text-slate-300">{fixture.competition} · {statusLabels[fixture.status]} · Confiança {confidenceLabels[fixture.confidence].toLowerCase()}</span></span>
             </label>
             {fixture.note && <p className="mt-2 text-sm text-amber-200">{fixture.note}</p>}
             {outside && <p className="mt-2 text-sm text-rose-200">Data prioritária fora do mês consultado. Consulte esse mês para importar.</p>}
             <ul className="mt-2 space-y-1 text-xs text-slate-300">{fixture.sources.map((source, i) => <li key={i}>
-              <a className="underline" href={source.url} target="_blank" rel="noopener noreferrer">{source.source}</a>: {source.date.split('-').reverse().join('/')} {source.confirmed ? '(data detalhada)' : '(sem confirmação detalhada)'}
+              <a className="underline" href={source.url} target="_blank" rel="noopener noreferrer">{source.source}</a>: {source.date.split('-').reverse().join('/')} · {source.kickoffTime || 'A definir'} {source.confirmed ? '(data detalhada)' : '(sem confirmação detalhada)'}
             </li>)}</ul>
           </article>;
         })}</div>

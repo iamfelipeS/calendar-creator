@@ -21,6 +21,7 @@ export interface SourceFixture {
   phase?: string;
 }
 export interface ConsolidatedFixture {
+  kickoffTime: string | null;
   id: string;
   date: string;
   homeTeam: string;

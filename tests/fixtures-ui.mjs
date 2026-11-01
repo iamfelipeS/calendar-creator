@@ -22,7 +22,7 @@ try {
   page.on('pageerror', e => errors.push(e.message));
   const results = ['confirmed', 'base_date', 'conditional', 'conflict'].map((status, index) => ({
     id: String(index), date: `2026-11-${String(5 + index).padStart(2, '0')}`, homeTeam: 'Palmeiras', awayTeam: ['Remo', 'Cruzeiro', 'A definir', 'Flamengo'][index],
-    competition: 'Brasileirão', status, confidence: status === 'confirmed' ? 'high' : 'low', note: null,
+    kickoffTime: index === 0 ? '19:30' : null, competition: 'Brasileirão', status, confidence: status === 'confirmed' ? 'high' : 'low', note: null,
     sources: [{ source: 'ESPN', date: `2026-11-0${5 + index}`, url: 'https://www.espn.com.br', confirmed: false }],
   }));
   let endpointFailure = false;
@@ -54,6 +54,8 @@ try {
   await click('Buscar jogos automaticamente'); await click('Buscar jogos');
   await page.waitForSelector('article input[type=checkbox]');
   assert.deepEqual(await page.$$eval('article input[type=checkbox]', nodes => nodes.map(n => n.checked)), [true, true, false, false]);
+  assert.match(await page.$eval('[role=dialog]', n => n.textContent), /19:30/);
+  assert.match(await page.$eval('[role=dialog]', n => n.textContent), /A definir/);
   assert.deepEqual(queries[0], { month: 11, year: 2026 });
   await click('Importar selecionados (2)'); await click('Cancelar');
   assert.equal(await page.$eval('textarea', n => n.value), '05 - Palmeiras x Remo');
@@ -65,6 +67,7 @@ try {
   await page.waitForSelector('article input[type=checkbox]');
   await click('Importar selecionados (2)'); await click('Substituir partidas atuais');
   await page.waitForFunction(() => !document.querySelector('[role=dialog]'));
+  assert.equal(await page.$eval('textarea', n => n.value), '05 19:30 - Palmeiras x Remo\n06 - Palmeiras x Cruzeiro');
   endpointFailure = true;
   await click('Buscar jogos automaticamente'); await click('Buscar jogos');
   await page.waitForSelector('[role=alert]');

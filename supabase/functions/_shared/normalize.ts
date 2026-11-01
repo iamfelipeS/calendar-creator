@@ -52,6 +52,19 @@ export function normalizeFixtures(rows: SourceFixture[]): SourceFixture[] {
     const key = `${row.source}|${row.sourceId}|${date}|${slug(homeTeam)}|${slug(awayTeam)}`;
     if (seen.has(key)) return [];
     seen.add(key);
-    return [{ ...row, date, homeTeam, awayTeam }];
+    return [{ ...row, date, homeTeam, awayTeam, kickoffTime: normalizeKickoffTime(row.kickoffTime) }];
   });
+}
+
+// Wall-clock values are São Paulo local time; timestamps must carry an explicit zone.
+export function normalizeKickoffTime(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const m = value.trim().match(/^(\d{1,2})[hH:](\d{2})(?::\d{2})?$/);
+  return m && Number(m[1]) < 24 && Number(m[2]) < 60 ? `${m[1].padStart(2, '0')}:${m[2]}` : null;
+}
+export function timestampKickoffTime(value: unknown): string | null {
+  if (typeof value !== 'string' || !/T\d{2}:\d{2}.*(?:Z|[+-]\d{2}:?\d{2})$/.test(value)) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
 }

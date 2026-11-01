@@ -53,7 +53,7 @@ describe('discovery + verification architecture', () => {
   });
   it('does one calendar request followed by punctual authority and secondary requests', async () => {
     const { result, requests } = await run();
-    expect(requests).toHaveLength(3); expect(requests[0]).toContain('/ingressos/');
+    expect(requests).toHaveLength(3); expect(requests[0]).toContain('/calendario/');
     expect(requests[1]).toContain('/2026/11/18'); expect(requests[2]).toContain('dates=20261118');
     expect(result).toMatchObject({ discoverySource: 'Palmeiras', discoveryFallback: false, discoveryCount: 1, discoveryCoverage: 'calendar' });
     expect(result.fixtures[0]).toMatchObject({ status: 'confirmed', confidence: 'high' });

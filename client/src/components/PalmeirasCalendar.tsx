@@ -2,6 +2,7 @@ import React, { forwardRef } from 'react';
 
 export interface MatchDay {
   day: number;
+  kickoffTime?: string | null;
   homeTeam?: string;
   awayTeam?: string;
   homeLogoUrl?: string;

@@ -1,5 +1,5 @@
 import type { FixtureQuery, SourceFixture } from './contracts.ts';
-import { competitionFrom, localDate, normalizeFixtures, slug } from './normalize.ts';
+import { competitionFrom, localDate, normalizeFixtures, normalizeKickoffTime, slug } from './normalize.ts';
 import { parseSportsEvents } from './structured-events.ts';
 
 interface Element { tag: string; attrs: Record<string, string>; children: (Element | string)[]; parent?: Element }
@@ -37,13 +37,13 @@ const text = (node: Element): string => node.children.map(c => typeof c === 'str
 const marker = (node: Element) => `${node.attrs.id || ''} ${node.attrs.class || ''} ${node.attrs['data-calendar'] || ''}`.toLowerCase();
 const news = (node: Element) => /noticia|related|news|post-item/.test(marker(node));
 function excluded(node: Element): boolean { for (let p: Element | undefined = node; p; p = p.parent) if (news(p) || ['nav', 'footer', 'aside'].includes(p.tag)) return true; return false; }
-const calendar = (node: Element) => /calend[áa]rio|calendar|fixture|proximas?-partidas|proximos?-jogos|lista-jogos/.test(marker(node));
+const calendar = (node: Element) => /calend[áa]rio|calendar|fixture|proximas?-partidas|proximos?-jogos|lista-jogos/.test(marker(node)) || children(node).some(c => /^h[1-6]$/.test(c.tag) && /^(CALENDARIO(?: COMPLETO)?|PROXIMAS PARTIDAS|PROXIMOS JOGOS|LISTA DE JOGOS|FIXTURES)$/.test(slug(text(c))));
 const fullCalendar = (node: Element) => /calendario.?completo|calendário.?completo|full.?calendar/.test(marker(node)) ||
   children(node).some(c => /^h[1-6]$/.test(c.tag) && slug(text(c)) === 'CALENDARIO COMPLETO');
 function gameLink(node: Element): boolean {
   if (node.tag !== 'a' || !node.attrs.href) return false;
   try { const url = new URL(node.attrs.href, 'https://www.palmeiras.com.br');
-    return /(^|\.)palmeiras\.com\.br$/.test(url.hostname) && /\/jogo\/?$/.test(url.pathname) && /^\d+$/.test(url.searchParams.get('idjogo') || '');
+    return /(^|\.)palmeiras\.com\.br$/.test(url.hostname) && /\/(?:jogo|ingressos)\/?$/.test(url.pathname);
   } catch { return false; }
 }
 const teams = (node: Element): RegExpMatchArray | null => text(node).match(/^(.{2,70}?)\s+[x×]\s+(.{2,70}?)$/i);
@@ -59,28 +59,31 @@ export function parsePalmeirasCalendar(html: string, url: string, query?: Fixtur
   const root = tree(html); const nodes = walk(root); const rows: SourceFixture[] = [];
   let coverage: CalendarPage['coverage'] = nodes.some(n => !excluded(n) && fullCalendar(n)) ? 'calendar' : 'unknown';
   let missingYear = false;
-  const anchors = nodes.filter(n => gameLink(n) && teams(n) && !excluded(n));
-  for (const anchor of anchors) {
+  // Start with the smallest confrontation element, then locate its own card. Links are metadata.
+  const pairs = nodes.filter(n => !excluded(n) && teams(n) && !children(n).some(c => teams(c)));
+  const used = new Set<Element>();
+  for (const anchor of pairs) {
     const pair = teams(anchor)!;
     let scope: Element | undefined;
     for (let p = anchor.parent; p; p = p.parent) {
       if (fullCalendar(p)) { scope = p; break; }
       if (!scope && calendar(p)) scope = p;
     }
-    // Explicit game links are accepted only in calendar/next-match blocks, never in news.
+    // Confrontations are accepted only in calendar/next-match blocks, never in news.
     if (!scope) continue;
     const isFull = fullCalendar(scope);
     if (isFull) coverage = 'calendar'; else if (coverage === 'unknown') coverage = 'upcoming_only';
     let card: Element | undefined;
     for (let p = anchor.parent; p; p = p.parent) {
       const content = text(p);
-      const links = walk(p).filter(n => gameLink(n) && teams(n));
+      const links = pairs.filter(n => walk(p).includes(n));
       const confrontations = new Set(links.map(n => slug(text(n))));
       if (confrontations.size > 1) break;
       if (confrontations.size === 1 && /\b\d{1,2}\/\d{2}\b/.test(content) && competitionFrom(content)) { card = p; break; }
       if (p === scope) break;
     }
-    if (!card) continue;
+    if (!card || used.has(card)) continue;
+    used.add(card);
     const content = text(card); const competition = competitionFrom(content); if (!competition) continue;
     const d = content.match(/\b(\d{1,2})\/(\d{2})(?:\/(20\d{2}))?\b/); if (!d) continue;
     const years = new Set((text(scope).match(/\b20\d{2}\b/g) || []).map(Number));
@@ -89,11 +92,13 @@ export function parsePalmeirasCalendar(html: string, url: string, query?: Fixtur
     if (!year) { missingYear = true; continue; }
     const date = localDate(`${year}-${d[2]}-${d[1].padStart(2, '0')}`); if (!date) continue;
     const time = content.match(/\b(\d{1,2})[hH:](\d{2})\b/);
-    const kickoffTime = time && Number(time[1]) < 24 && Number(time[2]) < 60 ? `${time[1].padStart(2, '0')}:${time[2]}` : null;
-    const gameUrl = new URL(anchor.attrs.href, url);
-    const venueNode = walk(card).find(n => /(?:^|[-_\s])(estadio|stadium|venue|local)(?:$|[-_\s])/.test(marker(n)));
+    const kickoffTime = normalizeKickoffTime(time?.[0]);
+    const link = walk(card).find(gameLink);
+    const gameUrl = new URL(link?.attrs.href || url, url);
+    const id = gameUrl.searchParams.get('idjogo');
+    const venueNode = walk(card).find(n => /(?:^|[-_\s])(estadio|stadium|venue|local)(?:$|[-_\s])/.test(marker(n))) || walk(card).find(n => !children(n).length && /estádio|estadio|arena|parque|morumbi|maracanã/i.test(text(n)) && !teams(n));
     const phase = content.match(/\b(Semifinal|Final|Quartas(?: de final)?|Oitavas(?: de final)?|Fase de grupos)\b/i)?.[0];
-    rows.push({ source: 'Palmeiras', sourceId: gameUrl.searchParams.get('idjogo')!, url: gameUrl.href,
+    rows.push({ source: 'Palmeiras', sourceId: id && /^\d+$/.test(id) ? id : `${date}|${kickoffTime || ''}|${slug(pair[1])}|${slug(pair[2])}|${competition}`, url: gameUrl.href,
       date, homeTeam: pair[1], awayTeam: pair[2], competition, confirmed: false,
       conditional: /VENCEDOR|CLASSIFICADO|TBD|A DEFINIR/.test(slug(`${pair[1]} ${pair[2]}`)),
       kickoffTime, venue: venueNode ? text(venueNode) : undefined, phase,
@@ -103,10 +108,11 @@ export function parsePalmeirasCalendar(html: string, url: string, query?: Fixtur
   }
   // Preserve compatibility with a standalone semantic fixture fragment. A complete site page
   // must use explicit calendar/card boundaries above; arbitrary site prose is never scanned.
-  if (!anchors.length && !/<(?:html|body|nav|section|article)\b/i.test(html)) {
+  if (!rows.length && !/<(?:html|body|nav|section|article)\b/i.test(html)) {
     const fragment = html.trim().match(/^<div[^>]*>([^<]+\b20\d{2})\s*\|\s*(\d{2}\/\d{2}\/\d{4})\s*\|[^<]*<\/div>\s*<p[^>]*>([^<]+?)\s+[x×]\s+([^<]+)<\/p>$/i);
     const competition = fragment && competitionFrom(decode(fragment[1]));
     if (fragment && competition) rows.push({ source: 'Palmeiras', sourceId: `${fragment[2]}-${fragment[3]}-${fragment[4]}`, url,
+      kickoffTime: normalizeKickoffTime(html.match(/\b\d{1,2}[hH:]\d{2}\b/)?.[0]),
       date: fragment[2], homeTeam: decode(fragment[3]), awayTeam: decode(fragment[4]), competition, confirmed: false, conditional: false });
   }
   const fixtures = normalizeFixtures([...structured, ...rows]).filter(f => belongsToMonth(f, query));

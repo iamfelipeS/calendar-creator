@@ -30,13 +30,21 @@ export function reconcileFixtures(raw: SourceFixture[], query: FixtureQuery): Co
     const agreement = new Set(sources.map(r => r.source)).size >= 2;
     const status = conflicting ? 'conflict' : conditional ? 'conditional' : official ? 'confirmed' : 'base_date';
     const confidence = conflicting || conditional ? 'low' : official ? 'high' : agreement ? 'medium' : 'low';
+    const sameDate = sources.filter(r => r.date === chosen.date);
+    const officialTime = sameDate.find(r => authority(r) && r.kickoffTime)?.kickoffTime;
+    const times = new Set(sameDate.map(r => r.kickoffTime).filter(Boolean));
+    const kickoffTime = officialTime || (times.size === 1 ? [...times][0]! : null);
+    const timeNote = times.size > 1 ? 'Divergência de horário entre fontes; prevalece o horário da autoridade quando disponível. Revise as alternativas.'
+      : kickoffTime && !officialTime ? 'Horário provisório, sem confirmação da autoridade da competição.' : null;
+    const dateNote = conflicting ? 'Fontes divergem. A data exibida prioriza a autoridade da competição; revise as alternativas antes de importar.'
+      : conditional ? 'Jogo ocorre apenas se o Palmeiras avançar; participação ainda não confirmada.'
+      : !official ? 'Data-base: sem confirmação detalhada da autoridade da competição.' : null;
     return {
+      kickoffTime,
       id: `${chosen.competition}|${slug(chosen.homeTeam)}|${slug(chosen.awayTeam)}|${chosen.round || ''}|${chosen.leg || ''}|${chosen.date}|${chosen.sourceId}`,
       date: chosen.date, homeTeam: chosen.homeTeam, awayTeam: chosen.awayTeam,
       competition: chosen.competition, status, confidence, sources,
-      note: conflicting ? 'Fontes divergem. A data exibida prioriza a autoridade da competição; revise as alternativas antes de importar.'
-        : conditional ? 'Jogo ocorre apenas se o Palmeiras avançar; participação ainda não confirmada.'
-        : !official ? 'Data-base: sem confirmação detalhada da autoridade da competição.' : null,
+      note: [dateNote, timeNote].filter(Boolean).join(' ') || null,
     } satisfies ConsolidatedFixture;
   }).sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 }

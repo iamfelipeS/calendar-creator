@@ -2,7 +2,7 @@ import { parsePalmeirasCalendar } from './palmeiras-calendar.ts';
 import { parseSportsEvents } from './structured-events.ts';
 export { parseSportsEvents } from './structured-events.ts';
 import type { FixtureQuery, FixtureSource, SourceFixture, SourceResult } from './contracts.ts';
-import { competitionFrom, localDate, normalizeFixtures, slug } from './normalize.ts';
+import { competitionFrom, localDate, normalizeFixtures, normalizeKickoffTime, timestampKickoffTime, slug } from './normalize.ts';
 
 type Json = Record<string, any>;
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
@@ -42,7 +42,8 @@ export function parseCBF(payload: Json, date: string, url: string): SourceFixtur
           url, date: localDate(String(game.data || '')) || date,
           homeTeam: String(game.mandante?.nome || ''), awayTeam: String(game.visitante?.nome || ''), competition,
           round: game.rodada == null ? undefined : String(game.rodada),
-          confirmed: /^\d{1,2}:\d{2}/.test(String(game.hora || '')),
+          kickoffTime: normalizeKickoffTime(game.hora),
+          confirmed: normalizeKickoffTime(game.hora) !== null,
           conditional: /A DEFINIR|VENCEDOR|CLASSIFICADO/.test(slug(`${game.mandante?.nome} ${game.visitante?.nome}`)),
         });
       }
@@ -75,6 +76,7 @@ export function parseESPN(payload: Json, competition: SourceFixture['competition
     if (/POSTPONED|CANCELED|CANCELLED|SUSPENDED/.test(game.status?.type?.name || event.status?.type?.name || '')) return [];
     // ESPN is always secondary, including when the API labels a fixture scheduled.
     return [{ source: 'ESPN', sourceId: String(event.id), url, date: game.date || event.date,
+      kickoffTime: game.timeValid === false || event.timeValid === false ? null : timestampKickoffTime(game.date || event.date),
       homeTeam: home.team.displayName, awayTeam: away.team.displayName, competition,
       confirmed: false, conditional: /A DEFINIR|TBD|WINNER|VENCEDOR/.test(slug(`${home.team.displayName} ${away.team.displayName}`)),
     } satisfies SourceFixture];
@@ -113,8 +115,8 @@ export function parsePalmeirasHTML(html: string, url: string): SourceFixture[] {
   return parsePalmeirasCalendar(html, url).fixtures;
 }
 export const palmeirasDiscoveryPages = [
-  'https://www.palmeiras.com.br/ingressos/',
   'https://www.palmeiras.com.br/calendario/',
+  'https://www.palmeiras.com.br/ingressos/',
   'https://www.palmeiras.com.br/programacao-semanal/',
   'https://www.palmeiras.com.br/dados-jogos/jogos/',
 ];

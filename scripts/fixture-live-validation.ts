@@ -20,7 +20,7 @@ export interface RequestAudit {
 export interface PublicFixture {
   date: string; homeTeam: string; awayTeam: string; competition: string;
   status?: string; confidence?: string; kickoffTime?: string | null; venue?: string; phase?: string;
-  sources: { source: FixtureSource; date: string; confirmed: boolean }[];
+  sources: { source: FixtureSource; date: string; kickoffTime: string | null; confirmed: boolean }[];
 }
 export interface SourceAudit {
   source: FixtureSource;
@@ -69,9 +69,10 @@ const competitionByLeague: Record<string, Competition> = {
 };
 const publicFixture = (f: ConsolidatedFixture | SourceFixture): PublicFixture => ({
   date: f.date, homeTeam: f.homeTeam, awayTeam: f.awayTeam, competition: f.competition,
-  ...('kickoffTime' in f ? { kickoffTime: f.kickoffTime, venue: f.venue, phase: f.phase } : {}),
+  kickoffTime: f.kickoffTime ?? null,
+  ...('source' in f ? { venue: f.venue, phase: f.phase } : {}),
   ...('status' in f ? { status: f.status, confidence: f.confidence } : {}),
-  sources: ('sources' in f ? f.sources : [f]).map(s => ({ source: s.source, date: s.date, confirmed: s.confirmed })),
+  sources: ('sources' in f ? f.sources : [f]).map(s => ({ source: s.source, date: s.date, kickoffTime: s.kickoffTime ?? null, confirmed: s.confirmed })),
 });
 const teamKey = (name: string) => slug(canonicalTeam(name));
 export function compareReferences(fixtures: PublicFixture[], query: FixtureQuery): Comparison[] {
@@ -252,7 +253,7 @@ const cell = (value: unknown) => String(value ?? '').replace(/[\r\n]/g, ' ').rep
 const tableFixtures = (fixtures: PublicFixture[]) => [
   '| Data | Confronto | Competição | Horário discovery | Status | Confidence | Fontes e datas |',
   '|---|---|---|---|---|---|---|',
-  ...fixtures.map(f => `| ${cell(f.date)} | ${cell(f.homeTeam)} x ${cell(f.awayTeam)} | ${cell(f.competition)} | ${cell(f.kickoffTime === null ? 'A DEFINIR' : f.kickoffTime || '—')} | ${cell(f.status || 'observação da fonte')} | ${cell(f.confidence || 'não atribuída isoladamente')} | ${f.sources.map(s => `${cell(s.source)}: ${cell(s.date)} (${s.confirmed ? 'detalhada' : 'não confirmada pela autoridade'})`).join('; ')} |`),
+  ...fixtures.map(f => `| ${cell(f.date)} | ${cell(f.homeTeam)} x ${cell(f.awayTeam)} | ${cell(f.competition)} | ${cell(f.kickoffTime === null ? 'A DEFINIR' : f.kickoffTime || '—')} | ${cell(f.status || 'observação da fonte')} | ${cell(f.confidence || 'não atribuída isoladamente')} | ${f.sources.map(s => `${cell(s.source)}: ${cell(s.date)} ${cell(s.kickoffTime || 'A definir')} (${s.confirmed ? 'detalhada' : 'não confirmada pela autoridade'})`).join('; ')} |`),
   ...(!fixtures.length ? ['| — | Nenhuma partida extraída/disponível | — | — | — | — | — |'] : []),
 ].join('\n');
 export function renderReport(report: ValidationReport): string {
