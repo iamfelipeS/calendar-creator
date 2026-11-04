@@ -1,0 +1,3 @@
+[functions.sync-palmeiras-fixtures]
+# No login in this version. Publishable keys are not JWTs; no privileged operation is exposed.
+verify_jwt = false

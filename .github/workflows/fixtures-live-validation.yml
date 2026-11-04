@@ -1,0 +1,49 @@
+name: Validate live fixture sources
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      CONMEBOL_FIXTURES_URL: ${{ vars.CONMEBOL_FIXTURES_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check live validator
+        run: deno check scripts/validate-fixture-sources.ts
+      - name: Query real fixture sources (September, October, November 2026)
+        run: deno run --allow-net --allow-env=CONMEBOL_FIXTURES_URL --allow-write=artifacts scripts/validate-fixture-sources.ts
+      - name: Add report to workflow summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f artifacts/fixture-live-validation.md ]; then
+            cat artifacts/fixture-live-validation.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload validation report even on source failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixture-live-validation
+          path: |
+            artifacts/fixture-live-validation.md
+            artifacts/fixture-live-validation.json
+          if-no-files-found: warn
+          retention-days: 14
