@@ -153,7 +153,7 @@ pnpm run build:client
 deno check scripts/validate-fixture-sources.ts supabase/functions/sync-palmeiras-fixtures/index.ts
 ```
 
-Os 32 casos anteriores foram preservados; expectativas de contagem/ordem e a amostra CONMEBOL foram atualizadas para discovery-first. Há 16 novos casos em `tests/discovery-verification.test.ts`, incluindo HTML sem JSON-LD, horário a definir, confirmação, acordo secundário, conflito, fallback vazio/HTTP, histórico, data única ESPN, cache, concorrência e virada de mês. Além desses 48 casos, `tests/kickoff-time.test.ts` acrescenta 18 casos de parser com elementos separados, horários, autoridade, fuso, importação, deduplicação e JSON salvo/recarregado. Total: 66 testes automatizados, com respostas injetadas — não consultas reais. O smoke test de navegador também verifica horário/A definir no modal e importação com horário.
+Os 32 casos anteriores foram preservados; expectativas de contagem/ordem e a amostra CONMEBOL foram atualizadas para discovery-first. Há 16 novos casos em `tests/discovery-verification.test.ts`, incluindo HTML sem JSON-LD, horário a definir, confirmação, acordo secundário, conflito, fallback vazio/HTTP, histórico, data única ESPN, cache, concorrência e virada de mês. Além desses 48 casos, `tests/kickoff-time.test.ts` acrescenta 18 casos de parser com elementos separados, horários, autoridade, fuso, importação, deduplicação e JSON salvo/recarregado. Total anterior: 66 testes automatizados, com respostas injetadas — não consultas reais. O smoke test de navegador também verifica horário/A definir no modal e importação com horário.
 
 ## Deploy futuro (não executado nesta etapa)
 
@@ -170,10 +170,14 @@ Antes de retirar o draft: conferir o HTML real do discovery, executar o workflow
 
 ## Horário até a persistência
 
-`kickoffTime` é `HH:mm | null` no consolidado; em MatchDay/JSON persistido também é opcional para compatibilidade. `16H00` e `19h30` são normalizados; `A DEFINIR` e valores inválidos viram null. CBF fornece horário local; ESPN e JSON-LD usam timestamps com fuso explícito convertidos para America/Sao_Paulo, inclusive a data na virada do dia. ESPN com timeValid=false não fornece horário.
+Três estados são preservados: `undefined` (registro legado sem informação), `null` (explicitamente A DEFINIR), e `HH:mm`. O consolidado atual fornece horário ou null; importações antigas sem campo continuam aceitas.
 
-CBF prevalece para competições domésticas; CONMEBOL para Libertadores. Somente horários da data consolidada participam da escolha. Sem horário da autoridade, um horário disponível sem discordância é provisório; horários discordantes ficam null. Divergências de horário aparecem em note e nas alternativas do modal, sem transformar sozinhas o status em conflito de data. Horário provisório nunca confirma a partida.
+Formatos textuais: `18 - Cruzeiro x Palmeiras`, `18 A DEFINIR - Cruzeiro x Palmeiras` e `18 21:30 - Cruzeiro x Palmeiras`. O parser e o serializador preservam os três estados em round-trip. O JSON de calendar_projects.matches mantém null explícito e omite campos undefined; a leitura existente prioriza esse JSON para reconstruir o editor. Nenhuma migração é necessária.
 
-O formato textual é `05 19:30 - Palmeiras x Remo`; o antigo `05 - Palmeiras x Remo` permanece válido. FixtureSearchModal → importFixturesText → parseMatchesInput → MatchDay → toCalendarProjectMatches preserva kickoffTime no JSON calendar_projects.matches. A leitura existente prioriza esse JSON e serializeMatchesText preserva o horário ao reconstruir o editor. Nenhuma migração é necessária. Registros antigos sem campo carregam com null. Append identifica duplicatas por data/confronto, independentemente do horário, preservando a edição existente; substituir usa os horários revisados da busca.
+CBF/CONMEBOL prevalecem conforme a competição. Timestamps ESPN/JSON-LD são convertidos para America/Sao_Paulo. Divergências apenas de horário ficam em note; horário secundário é provisório. Essas regras não foram modificadas nesta correção textual.
 
-Os cards visuais e a exportação de imagem mantêm o desenho atual; exportar não modifica os dados nem remove horários do editor/JSON. O horário aparece no modal de busca e no texto editável. A persistência foi testada por round-trip JSON local, sem gravação no Supabase real.
+Append deduplica por data/confronto, ignorando horário. Se a partida existente não tem informação, enriquece com HH:mm ou A DEFINIR da importação, preservando a grafia dos times. Horários e null já explícitos não são sobrescritos. Linhas manuais não reconhecidas também são preservadas.
+
+PalmeirasCalendar renderiza horário/A DEFINIR abaixo do confronto, centralizado, menor que as siglas, sem badge ou fundo. Partidas legadas não ganham linha. Cards com horário usam confronto horizontal e dimensões internas compactas para evitar corte, inclusive em story; moldura, grade, cabeçalho e rodapé permanecem. A mesma renderização é usada na exportação de imagem.
+
+Validação: 74 testes unitários (66 anteriores atualizados + 8 de round-trip/enriquecimento); check, build e Deno check. Smoke de importação e smoke visual em feedPortrait/square/story, novembro (5 semanas) e agosto/2026 (6 semanas), com horário definido, null e legado. O smoke verifica texto, ausência de linha legada, transparência e limites do card; screenshots são geradas em /tmp. Backend simulado, sem gravação no Supabase real.

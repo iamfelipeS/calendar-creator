@@ -1,3 +1,4 @@
+import { matchTimeLabel } from '../lib/match-time';
 import React, { forwardRef } from 'react';
 
 export interface MatchDay {
@@ -474,15 +475,18 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
             const awayUndefined = isUndefinedTeamName(match?.awayTeam);
             const showHomeLabel = Boolean(match?.homeLogoUrl) && !homeUndefined;
             const showAwayLabel = Boolean(match?.awayLogoUrl) && !awayUndefined;
-            const crestClass = compactLayout ? 'h-[34px] w-[34px]' : modeLayout.crestSize;
+            const hasKickoff = match?.kickoffTime !== undefined;
+            const verticalMatch = usesVerticalMatchLayout && !hasKickoff;
+            const crestClass = hasKickoff ? 'h-[28px] w-[28px]' : compactLayout ? 'h-[34px] w-[34px]' : modeLayout.crestSize;
             const teamLabelStyle = {
-              fontSize: `${(compactLayout ? 8 : 11) * teamLabelScale}px`,
+              fontSize: `${(hasKickoff || compactLayout ? 8 : 11) * teamLabelScale}px`,
               maxWidth: `${compactLayout ? 58 : 80}px`,
             };
 
             return (
               <div
                 key={index}
+                data-calendar-day={day ?? undefined}
                 className={`
                   relative min-h-0 overflow-hidden rounded-[18px] transition-all duration-300
                   ${day ? 'cursor-pointer hover:-translate-y-0.5' : ''}
@@ -518,14 +522,15 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
                     {isMatch && match ? (
                       <div className={`flex flex-1 ${modeLayout.matchAlign}`}>
                         <div
+                          style={hasKickoff ? { rowGap: '2px', columnGap: '2px', paddingInline: '2px' } : undefined}
                           className={`grid w-full items-center ${
-                            usesVerticalMatchLayout
+                            verticalMatch
                               ? compactLayout
                                 ? 'grid-cols-1 grid-rows-[auto_auto_auto] gap-1 px-0.5'
                                 : modeLayout.matchGap
                               : compactLayout
                                 ? 'grid-cols-[1fr_auto_1fr] gap-1 px-0.5'
-                                : `grid-cols-[1fr_auto_1fr] ${modeLayout.matchGap}`
+                                : `grid-cols-[1fr_auto_1fr] ${hasKickoff ? 'gap-1 px-0.5' : modeLayout.matchGap}`
                           }`}
                         >
                             <div className="flex min-w-0 flex-col items-center justify-center">
@@ -543,13 +548,13 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
                                   style={{ transform: `scale(${crestScale})`, transformOrigin: 'center' }}
                                 />
                               ) : (
-                                <div className={`${compactLayout ? 'h-[18px] min-w-[18px] px-1 text-[6px]' : modeLayout.crestFallbackSize} flex shrink-0 items-center justify-center rounded-full bg-emerald-950/35 font-bold tracking-[0.03em] text-white shadow-sm`}>
+                                <div className={`${hasKickoff ? 'h-[28px] min-w-[28px] px-1 text-[8px]' : compactLayout ? 'h-[18px] min-w-[18px] px-1 text-[6px]' : modeLayout.crestFallbackSize} flex shrink-0 items-center justify-center rounded-full bg-emerald-950/35 font-bold tracking-[0.03em] text-white shadow-sm`}>
                                   {homePlaceholder}
                                 </div>
                               )}
                               {showHomeLabel ? (
                                 <span
-                                  className={`${compactLayout ? 'mt-2' : modeLayout.teamLabelClass} min-w-0 truncate text-center font-semibold uppercase leading-none tracking-[0.01em] text-emerald-50/92`}
+                                  className={`${hasKickoff ? 'mt-1' : compactLayout ? 'mt-2' : modeLayout.teamLabelClass} min-w-0 truncate text-center font-semibold uppercase leading-none tracking-[0.01em] text-emerald-50/92`}
                                   style={teamLabelStyle}
                                 >
                                   {homePlaceholder}
@@ -559,7 +564,7 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
 
                             <div
                               className={`${
-                                usesVerticalMatchLayout
+                                verticalMatch
                                   ? compactLayout
                                     ? 'h-3 text-[9px]'
                                     : modeLayout.centerXClass
@@ -586,19 +591,28 @@ const PalmeirasCalendar = forwardRef<HTMLDivElement, PalmeirasCalendarProps>(fun
                                   style={{ transform: `scale(${crestScale})`, transformOrigin: 'center' }}
                                 />
                               ) : (
-                                <div className={`${compactLayout ? 'h-[18px] min-w-[18px] px-1 text-[6px]' : modeLayout.crestFallbackSize} flex shrink-0 items-center justify-center rounded-full bg-emerald-950/35 font-bold tracking-[0.03em] text-white shadow-sm`}>
+                                <div className={`${hasKickoff ? 'h-[28px] min-w-[28px] px-1 text-[8px]' : compactLayout ? 'h-[18px] min-w-[18px] px-1 text-[6px]' : modeLayout.crestFallbackSize} flex shrink-0 items-center justify-center rounded-full bg-emerald-950/35 font-bold tracking-[0.03em] text-white shadow-sm`}>
                                   {awayPlaceholder}
                                 </div>
                               )}
                               {showAwayLabel ? (
                                 <span
-                                  className={`${compactLayout ? 'mt-2' : modeLayout.teamLabelClass} min-w-0 truncate text-center font-semibold uppercase leading-none tracking-[0.01em] text-emerald-50/92`}
+                                  className={`${hasKickoff ? 'mt-1' : compactLayout ? 'mt-2' : modeLayout.teamLabelClass} min-w-0 truncate text-center font-semibold uppercase leading-none tracking-[0.01em] text-emerald-50/92`}
                                   style={teamLabelStyle}
                                 >
                                   {awayPlaceholder}
                                 </span>
                               ) : null}
                             </div>
+                            {match.kickoffTime !== undefined ? (
+                              <span
+                                data-kickoff-time
+                                className="col-span-full text-center font-normal leading-tight text-emerald-50/75"
+                                style={{ fontSize: `${6 * teamLabelScale}px` }}
+                              >
+                                {matchTimeLabel(match.kickoffTime)}
+                              </span>
+                            ) : null}
                         </div>
                       </div>
                     ) : (

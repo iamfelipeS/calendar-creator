@@ -132,11 +132,11 @@ describe('orchestration and HTTP', () => {
 describe('human-reviewed import', () => {
   it('deduplicates using canonical names and preserves names associated with existing shields', () => {
     const f = fixture({ awayTeam: 'Athletico-PR' });
-    expect(importFixturesText('05 - Palmeiras x Athletico Paranaense', [f], query, 'append')).toBe('05 - Palmeiras x Athletico Paranaense');
-    expect(importFixturesText('', [f], query, 'replace', ['Athletico-PR'])).toBe('05 - Palmeiras x Athletico-PR');
+    expect(importFixturesText('05 - Palmeiras x Athletico Paranaense', [f], query, 'append')).toBe('05 A DEFINIR - Palmeiras x Athletico Paranaense');
+    expect(importFixturesText('', [f], query, 'replace', ['Athletico-PR'])).toBe('05 A DEFINIR - Palmeiras x Athletico-PR');
   });
   it('does not drop unparsed current lines when appending', () => {
-    expect(importFixturesText('revisar partida manual', [fixture()], query, 'append')).toContain('revisar partida manual\n05 - Palmeiras x Remo');
+    expect(importFixturesText('revisar partida manual', [fixture()], query, 'append')).toContain('revisar partida manual\n05 A DEFINIR - Palmeiras x Remo');
   });
   it('does not mutate original result objects', () => {
     const f = fixture(); const snapshot = JSON.stringify(f); importFixturesText('', [f], query, 'replace'); expect(JSON.stringify(f)).toBe(snapshot);

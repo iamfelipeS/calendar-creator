@@ -81,7 +81,7 @@ describe('kickoff survives discovery, authority, review and saved JSON', () => {
   it('loads old JSON and old text with no kickoff without losing teams', () => {
     const old = [{ day: 5, homeTeam: 'Palmeiras', awayTeam: 'Remo' }];
     expect(serializeMatchesText(old)).toBe('05 - Palmeiras x Remo');
-    expect(parseMatchesInput(serializeMatchesText(old))[0]).toMatchObject({ ...old[0], kickoffTime: null });
-    expect(importFixturesText('', [consolidate(row({ kickoffTime: null }))], query, 'replace')).toBe('05 - Palmeiras x Remo');
+    expect(parseMatchesInput(serializeMatchesText(old))[0]).toMatchObject({ ...old[0] });
+    expect(importFixturesText('', [consolidate(row({ kickoffTime: null }))], query, 'replace')).toBe('05 A DEFINIR - Palmeiras x Remo');
   });
 });

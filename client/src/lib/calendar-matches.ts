@@ -1,3 +1,4 @@
+import { matchLinePattern, matchTimeText } from './match-time';
 import { normalizeKickoffTime } from '../../../supabase/functions/_shared/normalize';
 import type { MatchDay } from '@/components/PalmeirasCalendar';
 import type { CalendarProjectMatchRecord, CalendarTeamAssetRecord } from '@/lib/calendar-supabase';
@@ -23,7 +24,7 @@ export const parseMatchesInput = (input: string, persistedTeamLogos?: Record<str
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line): MatchDay | null => {
-      const match = line.match(/^(\d{1,2})(?:\s+([0-2]\d:[0-5]\d))?\s*-\s*(.+?)\s+x\s+(.+)$/i);
+      const match = line.match(matchLinePattern);
       if (!match) {
         return null;
       }
@@ -34,13 +35,13 @@ export const parseMatchesInput = (input: string, persistedTeamLogos?: Record<str
       const homeUndefined = isUndefinedTeam(homeTeam);
       const awayUndefined = isUndefinedTeam(awayTeam);
 
-      if (!day || day > 31 || (match[2] && !normalizeKickoffTime(match[2])) || !homeTeam || !awayTeam) {
+      if (!day || day > 31 || (match[2] && match[2].toUpperCase() !== 'A DEFINIR' && !normalizeKickoffTime(match[2])) || !homeTeam || !awayTeam) {
         return null;
       }
 
       return {
         day,
-        kickoffTime: normalizeKickoffTime(match[2]),
+        ...(match[2] === undefined ? {} : { kickoffTime: normalizeKickoffTime(match[2]) }),
         homeTeam,
         awayTeam,
         homeLogoUrl: homeUndefined ? undefined : getTeamLogo(homeTeam, persistedTeamLogos) || undefined,
@@ -58,7 +59,7 @@ export const serializeMatchesText = (storedMatches: CalendarProjectMatchRecord[]
         return '';
       }
 
-      return `${String(match.day).padStart(2, '0')}${normalizeKickoffTime(match.kickoffTime) ? ` ${normalizeKickoffTime(match.kickoffTime)}` : ''} - ${match.homeTeam} x ${match.awayTeam}`;
+      return `${String(match.day).padStart(2, '0')}${matchTimeText(match.kickoffTime)} - ${match.homeTeam} x ${match.awayTeam}`;
     })
     .filter(Boolean)
     .join('\n');
@@ -69,7 +70,7 @@ export const toCalendarProjectMatches = (currentMatches: MatchDay[]): CalendarPr
     homeTeam,
     awayTeam,
     isUndefined,
-    kickoffTime: normalizeKickoffTime(kickoffTime),
+    ...(kickoffTime === undefined ? {} : { kickoffTime: normalizeKickoffTime(kickoffTime) }),
   }));
 
 export const extractTeamNamesFromMatchesText = (matchesText?: string | null) => {

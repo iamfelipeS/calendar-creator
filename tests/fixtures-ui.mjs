@@ -61,13 +61,13 @@ try {
   assert.equal(await page.$eval('textarea', n => n.value), '05 - Palmeiras x Remo');
   await click('Importar selecionados (2)'); await click('Adicionar aos jogos existentes');
   await page.waitForFunction(() => !document.querySelector('[role=dialog]'));
-  assert.equal(await page.$eval('textarea', n => n.value), '05 - Palmeiras x Remo\n06 - Palmeiras x Cruzeiro');
+  assert.equal(await page.$eval('textarea', n => n.value), '05 19:30 - Palmeiras x Remo\n06 A DEFINIR - Palmeiras x Cruzeiro');
   assert.ok(await page.evaluate(() => document.body.textContent.includes('Alteracoes nao salvas')));
   await click('Buscar jogos automaticamente'); await click('Buscar jogos');
   await page.waitForSelector('article input[type=checkbox]');
   await click('Importar selecionados (2)'); await click('Substituir partidas atuais');
   await page.waitForFunction(() => !document.querySelector('[role=dialog]'));
-  assert.equal(await page.$eval('textarea', n => n.value), '05 19:30 - Palmeiras x Remo\n06 - Palmeiras x Cruzeiro');
+  assert.equal(await page.$eval('textarea', n => n.value), '05 19:30 - Palmeiras x Remo\n06 A DEFINIR - Palmeiras x Cruzeiro');
   endpointFailure = true;
   await click('Buscar jogos automaticamente'); await click('Buscar jogos');
   await page.waitForSelector('[role=alert]');

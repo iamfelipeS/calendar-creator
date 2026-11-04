@@ -590,7 +590,7 @@ export default function Home() {
             <div className="mb-4">
               <p className="text-xs uppercase tracking-[0.24em] text-emerald-300 sm:text-sm">Gerador rápido</p>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                Cole as partidas no formato <code className="rounded bg-slate-800 px-2 py-1 text-xs text-emerald-300">DD - Time A x Time B</code> e clique em gerar.
+                Cole as partidas no formato <code className="rounded bg-slate-800 px-2 py-1 text-xs text-emerald-300">DD [HH:mm ou A DEFINIR] - Time A x Time B</code> (horário opcional) e clique em gerar.
               </p>
               {isLoadingAssets ? <p className="mt-2 text-xs text-slate-400">Carregando branding e escudos salvos...</p> : null}
               {supabaseNotice ? <p className="mt-2 text-xs text-emerald-200">{supabaseNotice}</p> : null}
